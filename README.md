@@ -6,13 +6,13 @@ The product is usable only with an active Cursor plan. If the plan is inactive, 
 
 ## Spine
 
-Chief (the custom Slack app) and the GitHub App receive a mention, then Gilfoyle (or the built-in orchestrator) writes the task:
+Chief wakes on a mention and hands Gilfoyle the context. Fleetglass writes the task, then the plan gate launches a cloud agent:
 
-1. `github_pr_mention` — a PR comment that mentions a login you configured on the GitHub App
-2. `slack_bot_mention` — an `app_mention` of Chief from Slack user `U08C40K4FHN`
+1. `github_pr_mention` — a PR comment on a repo under `DollarPe-Infra` or `avinitDollarpe` that @mentions `avinitDollarpe`, `cursor`, or `cursoragent`. Idempotency is the comment id. `source_ref` is the PR URL.
+2. `slack_bot_mention` — an `app_mention` of Richard (`@richard`) from Slack user `U08C40K4FHN`. Aliases include `@cursor`, `cursor bot`, and `cursoragent`. Channels are `*`. Idempotency is `slack_ts`. `source_ref` is the permalink.
 3. `chat_delegate` — you delegate in chat
 
-Gilfoyle checks the Cursor plan, launches the cloud agent, and keeps state and token usage current. Settings → Integrations is the source of truth. Chief is not a Cursor bot. A Grok teammate named Fleetglass is optional and interim.
+An inactive Cursor plan stores the task as `blocked:cursor_plan` and does not launch. Settings → Integrations holds Richard’s display name, handle, aliases, and channel allowlist.
 
 ## Slack Event Subscriptions
 
@@ -24,16 +24,20 @@ https://<your-host>/api/slack/events
 
 Locally that is `http://localhost:3000/api/slack/events`. On Vercel it is `https://<project>.vercel.app/api/slack/events`.
 
-1. In the Chief Slack app, copy the signing secret into `SLACK_SIGNING_SECRET`.
-2. Put the bot token in `SLACK_BOT_TOKEN`.
-3. Point the event at a fleet with `SLACK_FLEETGLASS_USER_ID` (uuid) or `SLACK_OWNER_EMAIL`. Per-tenant OAuth on Settings → Integrations replaces this later.
-4. Deploy, or tunnel the local port. In Slack, open Event Subscriptions, enable events, and paste the request URL.
-5. Slack posts `url_verification`. Fleetglass verifies `X-Slack-Signature` against `X-Slack-Request-Timestamp` and the raw body, then returns `200` and `{ "challenge": "<the challenge>" }`. A wrong signature is `401`. If `SLACK_SIGNING_SECRET` is unset, the response is `503` and Slack will not verify the URL.
-6. Subscribe to the bot event `app_mention`.
-7. Only mentions from `U08C40K4FHN` create a task (`trigger=slack_bot_mention`, `source_ref` = permalink, idempotency `slack_event:{event_id}` or the message `slack_ts`). Other users are ignored.
-8. Optional: set `CHIEF_HANDOFF_URL`. Fleetglass POSTs `{ "type": "fleetglass.slack_mention", "taskId", "sourceRef", "slackUser", "text" }` so Chief can hand the task to Gilfoyle. An active Cursor plan also launches from this app.
+The route is in the app so Richard can be pointed at it later. This release does not point the Slack app, and it does not make the challenge succeed against the Cursor Grok Bot webhook.
 
-Duplicate events collapse on an idempotency key (`comment_id`, or the Slack message timestamp `slack_ts`). A later mention on a pull request that already has a task becomes a follow-up on that parent.
+1. Copy Richard’s signing secret into `SLACK_SIGNING_SECRET`.
+2. Put the bot token in `SLACK_BOT_TOKEN`.
+3. Point the event at a fleet with `SLACK_FLEETGLASS_USER_ID` (uuid) or `SLACK_OWNER_EMAIL`. Per-tenant OAuth on Settings → Integrations uses `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` when those exist.
+4. In Slack, open Event Subscriptions, enable events, and paste the request URL.
+5. Slack posts `url_verification`. Fleetglass verifies `X-Slack-Signature` against `X-Slack-Request-Timestamp` and the raw body, then returns `200` and `{ "challenge": "<the challenge>" }`. A wrong signature is `401`. If `SLACK_SIGNING_SECRET` is unset, the response is `503`.
+6. Subscribe to the bot event `app_mention`.
+7. Only mentions from `U08C40K4FHN` create a task (`trigger=slack_bot_mention`, `source_ref` = permalink, idempotency = message `slack_ts`). Other users are ignored. `event_id` is stored and is not the key.
+8. Optional: set `CHIEF_HANDOFF_URL`. Fleetglass POSTs `{ "type": "fleetglass.slack_mention", "taskId", "sourceRef", "slackUser", "slackTs", "text" }` so Chief can hand the task to Gilfoyle. An active Cursor plan also launches from this app.
+
+GitHub: set `GITHUB_WEBHOOK_SECRET` and send `issue_comment` or `pull_request_review_comment` to `/api/github/webhook`. Repos outside `DollarPe-Infra` and `avinitDollarpe` are ignored. A mention of `avinitDollarpe`, `cursor`, or `cursoragent` creates a task keyed by `comment_id`.
+
+Duplicate events collapse on that idempotency key. A later mention on a pull request that already has a task becomes a follow-up on that parent.
 
 ## Local
 
@@ -83,7 +87,8 @@ Point `DATABASE_URL` at the app role and `DATABASE_URL_MIGRATE` at a role that c
 ```bash
 npm run typecheck
 npm run test:plan
-npx tsx scripts/intake-check.ts
+npm run test:intake
+npm run test:bots
 ```
 
 ## Ingest
@@ -97,14 +102,14 @@ curl -s -X POST http://localhost:3000/api/v1/tasks \
   -d '{
     "trigger": "github_pr_mention",
     "commentId": "ic_123",
-    "sourceRef": "https://github.com/acme/app/pull/42",
+    "sourceRef": "https://github.com/DollarPe-Infra/app/pull/42",
     "payload": {
-      "repo": "acme/app",
+      "repo": "DollarPe-Infra/app",
       "prNumber": 42,
-      "prUrl": "https://github.com/acme/app/pull/42",
-      "commentBody": "@fleetglass fix the flaky checkout test",
+      "prUrl": "https://github.com/DollarPe-Infra/app/pull/42",
+      "commentBody": "@avinitDollarpe fix the flaky checkout test",
       "commenter": "chakravarti",
-      "mentionTargets": ["fleetglass"],
+      "mentionTargets": ["avinitDollarpe", "cursor", "cursoragent"],
       "commentId": "ic_123"
     }
   }'
@@ -130,13 +135,15 @@ Production is Vercel plus managed Postgres (Neon or Vercel Postgres).
 | `EMAIL_SERVER` | SMTP URL for magic links |
 | `EMAIL_FROM` | From address |
 | `INTEGRATION_SECRET_KEY` | 64 hex characters |
-| `SLACK_CLIENT_ID` | Fleetglass Slack app client id |
+| `SLACK_CLIENT_ID` | Richard Slack app client id (OAuth; optional until you install) |
 | `SLACK_CLIENT_SECRET` | Slack app client secret |
-| `SLACK_SIGNING_SECRET` | Chief app signing secret for `/api/slack/events` |
-| `SLACK_BOT_TOKEN` | Chief bot token (`xoxb-…`) for permalinks |
+| `SLACK_SIGNING_SECRET` | Richard app signing secret for `/api/slack/events` |
+| `SLACK_BOT_TOKEN` | Richard bot token (`xoxb-…`) for permalinks |
 | `SLACK_FLEETGLASS_USER_ID` | Fleet that receives mentions before OAuth |
+| `SLACK_OWNER_EMAIL` | Same fleet, looked up by email when the user id is unset |
+| `SLACK_MENTION_USER_ID` | Defaults to `U08C40K4FHN` |
 | `CHIEF_HANDOFF_URL` | Optional POST target after a Slack task is created |
-| `GITHUB_APP_SLUG` | Fleetglass GitHub App slug |
+| `GITHUB_APP_SLUG` | Extra GitHub mention target |
 | `GITHUB_WEBHOOK_SECRET` | GitHub webhook secret |
 | `DEV_MAILBOX` | unset |
 | `ALLOW_PLAN_OVERRIDE` | unset |

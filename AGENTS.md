@@ -8,8 +8,8 @@ Fleetglass is a multi-tenant SaaS. Each person signs up with email and tracks th
 
 After any intake trigger, the path is the same:
 
-1. The Fleetglass Slack bot or GitHub App receives the mention. Chat delegate still starts from the user telling the bot to hand work off.
-2. Intake creates or updates the Fleetglass task before any Cloud Agent launch.
+1. Chief wakes on the mention and hands the context to Gilfoyle.
+2. Fleetglass creates or updates the task before any Cloud Agent launch.
 3. Gilfoyle, or the built-in orchestrator on the webhook, verifies an active Cursor plan. Inactive plans set the task to `blocked:cursor_plan` and do not launch.
 4. A launch stores `bc_id` plus the agent URL.
 5. State, subtasks, and token usage land on the dashboard.
@@ -18,9 +18,9 @@ The product is only usable with an active Cursor plan. Onboarding and every new 
 
 ### Ownership
 
-- Fleetglass owns the Slack bot and the GitHub App. Both are installed per tenant from Settings → Integrations. They are not the Cursor bot.
+- Chief owns the live listeners. Fleetglass stores the contract, the task, and `POST /api/slack/events` so Richard’s Slack app can be pointed here later.
 - Gilfoyle owns the board, launch, and Fleetglass writes after intake. The webhook orchestrator may launch when the plan is active.
-- A Grok teammate named Fleetglass may front intake until the Slack app is installed. That persona is interim. The source of truth is the SaaS bot configuration in this repo.
+- Richard (`@richard`) is the Slack app configured in Settings → Integrations. A Grok teammate named Fleetglass is optional and interim. Pointing Richard’s app, and making Slack’s challenge succeed against the Cursor Grok Bot webhook, is later work and does not block this app.
 
 ## Intake triggers
 
@@ -28,26 +28,46 @@ The product is only usable with an active Cursor plan. Onboarding and every new 
 
 | Trigger | When |
 | --- | --- |
-| `github_pr_mention` | A PR comment mentions a GitHub login configured on the tenant’s Fleetglass GitHub App, or `GITHUB_APP_SLUG`. |
-| `slack_bot_mention` | Chief, the Slack app, receives `app_mention`. Only Slack user `U08C40K4FHN` is accepted (`SLACK_MENTION_USER_ID` overrides). |
+| `github_pr_mention` | A PR comment on a repo under `DollarPe-Infra` or `avinitDollarpe` @mentions GitHub user `avinitDollarpe`, or `cursor` / `cursoragent` / `@cursor`. |
+| `slack_bot_mention` | Richard receives `app_mention`. Only Slack user `U08C40K4FHN` is accepted (`SLACK_MENTION_USER_ID` overrides). |
 | `chat_delegate` | The user delegates in chat. The dashboard “Add task” form uses this trigger with `payload.via = dashboard`. |
 
-`tasks.source_ref` is the normalized PR URL or the Slack permalink. `tasks.trigger_payload` keeps the rest, including `slackTs`.
+`tasks.source_ref` is the PR URL for GitHub and the Slack permalink for Slack.
 
-Idempotency is `(user_id, idempotency_key)`. Callers may send `idempotencyKey`. Otherwise GitHub uses `github_comment:{commentId}`. Slack prefers `slack_event:{eventId}` when Slack sends `event_id`, else the message timestamp `slack:{teamId}:{channelId}:{slackTs}` (`slack_ts:{slackTs}` without team and channel). A duplicate POST returns `200` and `{ deduped: true }`.
+### GitHub values
+
+- User: `avinitDollarpe`
+- Repo owners: `DollarPe-Infra`, `avinitDollarpe` (every repo under those owners)
+- Mention targets: `avinitDollarpe`, `cursor`, `cursoragent` (plus any extras saved on the install, plus `GITHUB_APP_SLUG`)
+- Idempotency key: `github_comment:{comment_id}`
+- `source_ref`: the PR URL, lowercased, without query or hash
+
+GitHub’s routine `pr-comment` automation gates on the PR author via `userAllowlist`, not on the mention. Chief listens with allowlist `avinitDollarpe` and a body filter for those mentions. `POST /api/github/webhook` covers org-wide mention intake when `GITHUB_WEBHOOK_SECRET` is set. Until a GitHub App install is stored, the webhook attributes the task to `GITHUB_FLEETGLASS_USER_ID` / `GITHUB_OWNER_EMAIL`, then `SLACK_FLEETGLASS_USER_ID` / `SLACK_OWNER_EMAIL`.
+
+### Slack values
+
+- Display name: Richard. Handle: `@richard`
+- Channel scope: `*` (every channel). An empty allowlist means the same thing.
+- Aliases, besides the handle: `@cursoragent`, `cursoragent`, `@cursor`, `cursor bot`, `@Cursor`
+- Idempotency key: the message timestamp `slack_ts`, stored as `slack:{teamId}:{channelId}:{slackTs}` (or `slack_ts:{slackTs}` when team or channel is missing). `event_id` is kept on the payload and does not win the key.
+- `source_ref`: the Slack permalink
+
+Idempotency is unique on `(user_id, idempotency_key)`. Callers may send `idempotencyKey`. A duplicate POST returns `200` and `{ deduped: true }`.
 
 ## Slack Event Subscriptions
 
 Request URL: `POST {AUTH_URL}/api/slack/events`
 
-1. Set `SLACK_SIGNING_SECRET` from the Chief Slack app (Basic Information → App Credentials).
+The route is implemented so Richard can be pointed at it later. Live Event Subscriptions pointing, and the Cursor Grok Bot webhook challenge, are not part of this release.
+
+1. Set `SLACK_SIGNING_SECRET` from Richard’s Slack app (Basic Information → App Credentials) when you point it.
 2. Set `SLACK_BOT_TOKEN` (`xoxb-…`) for permalinks, and `SLACK_FLEETGLASS_USER_ID` or `SLACK_OWNER_EMAIL` until that workspace is connected with OAuth.
-3. Deploy, or expose the local app. Paste `https://<host>/api/slack/events` into Event Subscriptions.
+3. Paste `https://<host>/api/slack/events` into Event Subscriptions.
 4. Slack sends `url_verification`. Fleetglass checks `X-Slack-Signature` and `X-Slack-Request-Timestamp`, then responds `200` with `{ "challenge": "<value>" }`. A bad signature is `401`. A missing signing secret is `503`.
 5. Subscribe to the bot event `app_mention`. Mentions from anyone except `U08C40K4FHN` are acknowledged and ignored.
-6. A kept mention creates a `slack_bot_mention` task (`source_ref` is the permalink). Optional `CHIEF_HANDOFF_URL` receives `{ "type": "fleetglass.slack_mention", ... }` for the Gilfoyle handoff. If the Cursor plan is active, the built-in orchestrator launches.
+6. A kept mention creates a `slack_bot_mention` task (`source_ref` is the permalink, idempotency is `slack_ts`). Optional `CHIEF_HANDOFF_URL` receives `{ "type": "fleetglass.slack_mention", ... }` so Chief can hand the task to Gilfoyle. If the Cursor plan is active, the built-in orchestrator launches.
 
-Settings → Integrations → Slack shows that request URL. OAuth install on the same page is the later per-tenant path. The display name is Chief. `@cursor` is not a built-in mention. A Grok teammate named Fleetglass is optional and interim.
+Settings → Integrations → Slack shows that request URL, the display name Richard, handle `@richard`, the alias list, and the channel allowlist. OAuth install (`SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`) is wired and waits on those secrets.
 
 A new `github_pr_mention` whose normalized PR URL already belongs to a top-level task becomes a follow-up child of that parent (`follow_up_linked`). Dedupe wins over follow-up. Subtasks are one level deep. Slack and chat do not link through `source_ref`.
 
@@ -82,9 +102,9 @@ Bearer ingest keys (`fg_…`), shown once. Session cookie routes are the dashboa
 
 - `GET/POST /api/v1/plan` — live plan check
 - `GET/PUT /api/v1/integrations` — Slack bot and GitHub App settings, without secrets
-- `GET/PUT /api/v1/aliases` — Fleetglass Slack handle and aliases. No built-in `@cursor`
-- `POST /api/slack/events` — Chief Event Subscriptions URL. `url_verification` returns the challenge. `app_mention` from `U08C40K4FHN` ingests a task
-- `POST /api/github/webhook` — signed GitHub listener that calls intake, then the plan gate
+- `GET/PUT /api/v1/aliases` — Richard’s handle and aliases
+- `POST /api/slack/events` — Richard’s Event Subscriptions URL. `url_verification` returns the challenge. `app_mention` from `U08C40K4FHN` ingests a task
+- `POST /api/github/webhook` — signed GitHub listener for `DollarPe-Infra` and `avinitDollarpe`. Idempotency is `comment_id`
 - `GET/POST /api/v1/tasks` — list; create with trigger metadata. `201` new, `200` deduped. `?sourceRef=` filters parents
 - `GET/PATCH/DELETE /api/v1/tasks/:id`
 - `POST /api/v1/tasks/:id/subtasks`

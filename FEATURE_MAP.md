@@ -1,14 +1,13 @@
 # Feature map
 
-Fleetglass Postgres is the source of truth. The dashboard is per user. The Fleetglass Slack bot and GitHub App listen. Gilfoyle writes and launches. Cursor cloud agents do the work, and only when the Cursor plan is active.
+Fleetglass Postgres is the source of truth. The dashboard is per user. Chief owns the live listeners. Gilfoyle writes and launches. Cursor cloud agents do the work, and only when the Cursor plan is active.
 
 ## Spine
 
 ```
-Chief Slack app | GitHub App | chat_delegate
-        → intake (trigger + slack_ts or comment id)
+Chief (Richard @richard | GitHub mention | chat_delegate)
+        → handoff Gilfoyle
         → Fleetglass task (create, follow-up, or dedupe)
-        → Gilfoyle or the built-in orchestrator
         → Cursor plan gate
         → Cloud Agent
         → state / token / subtask updates
@@ -19,14 +18,14 @@ Chief Slack app | GitHub App | chat_delegate
 
 | Feature | Where | Behavior |
 | --- | --- | --- |
-| `github_pr_mention` | `tasks.trigger`, `tasks.source`, `src/lib/intake.ts` | Payload: repo, pr number/url, comment body, commenter, mention targets, comment id. `source_ref` is the PR URL, lowercased, without query or hash. |
-| `slack_bot_mention` | same | Payload: team, channel, permalink, text, user, `slackTs`. `source_ref` is the Slack permalink. |
-| `chat_delegate` | same | User delegates in chat. Dashboard add-task uses this trigger. |
-| Idempotency | `tasks.idempotency_key`, unique `(user_id, idempotency_key)` | Explicit key, else `github_comment:{commentId}`, else `slack_event:{eventId}`, else Slack message ts. Duplicate webhook returns the existing task. |
+| `github_pr_mention` | `tasks.trigger`, `src/lib/bots.ts`, `POST /api/github/webhook` | User `avinitDollarpe`. Repos under `DollarPe-Infra` and `avinitDollarpe`. Mentions `avinitDollarpe`, `cursor`, or `cursoragent`. `source_ref` is the PR URL. Idempotency is `github_comment:{comment_id}`. |
+| `slack_bot_mention` | `POST /api/slack/events` | Richard / `@richard`. Aliases `@cursoragent`, `cursoragent`, `@cursor`, `cursor bot`, `@Cursor`. Channels `*`. `source_ref` is the permalink. Idempotency is `slack_ts`, not `event_id`. |
+| `chat_delegate` | dashboard add-task, ingest | User delegates in chat. `payload.via = dashboard` from the board. |
+| Idempotency | `tasks.idempotency_key`, unique `(user_id, idempotency_key)` | GitHub key is the comment id. Slack key is `slack:{team}:{channel}:{slack_ts}`. Duplicate webhook returns the existing task. |
 | PR follow-up | `tasks.parent_id` | A later GitHub mention on a PR that already has a top-level task links a child. Dedupe wins. |
-| Chief Slack app | `POST /api/slack/events`, Settings → Integrations → Slack | Request URL for Event Subscriptions. Signed `url_verification` returns `{ challenge }`. `app_mention` is ingested only for Slack user `U08C40K4FHN`. Idempotency is `slack_event:{eventId}` or `slack_ts`. `source_ref` is the permalink. Env `SLACK_SIGNING_SECRET` and `SLACK_BOT_TOKEN` run this before per-tenant OAuth. |
-| Slack settings | `integrations` provider `slack` | Display name Chief, handle, aliases, channel allowlist, enabled. OAuth install is the later per-tenant path. |
-| GitHub App | Settings → Integrations → GitHub, `integrations` provider `github` | Per-tenant installation id and mention targets. Same enable switch. Not `@cursor`. |
+| Slack events | `POST /api/slack/events` | Request URL is ready. Signed `url_verification` returns `{ challenge }`. `app_mention` is ingested only for `U08C40K4FHN`. Pointing Richard’s app, and the Cursor Grok Bot webhook challenge, happen later. |
+| Slack settings | Settings → Integrations → Slack | Display name Richard, handle `@richard`, aliases, channel allowlist, enable switch, OAuth install path. Env signing secret and bot token work before OAuth secrets exist. |
+| GitHub webhook | `POST /api/github/webhook` | Signed `issue_comment` and `pull_request_review_comment`. Out-of-scope owners are ignored. Env owner fallback until an App install is stored. |
 
 ## Plan gate
 
@@ -56,8 +55,9 @@ Chief Slack app | GitHub App | chat_delegate
 
 | Role | Owns |
 | --- | --- |
-| Fleetglass bot | Slack app and GitHub App listeners, intake, dashboard settings |
+| Chief | Live listeners. Hands off to Gilfoyle. `pr-comment` allowlist is `avinitDollarpe` plus a mention body filter. |
 | Gilfoyle | Board, Cursor launch, Fleetglass writes |
+| Richard | Slack app (`@richard`). Events URL lives in this repo; pointing the app is later. |
 | Fleetglass | Source of truth, plan gate, dashboard, ingest API |
 | Cursor Cloud | Worker. Refused when the plan is inactive |
 
@@ -65,4 +65,4 @@ A Grok teammate named Fleetglass is an interim intake persona only.
 
 ## Out of scope
 
-Organizations, Notion as source of truth, treating `@cursor` as a built-in listener, invented cloud-agent ids.
+Organizations, Notion as source of truth, invented cloud-agent ids, pointing Richard’s Slack app at the request URL, and making Slack’s `url_verification` challenge succeed against the Cursor Grok Bot webhook.
