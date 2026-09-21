@@ -1,6 +1,8 @@
 import { auth } from "@/auth";
 import { HeatPanel } from "@/components/app/heat-panel";
-import { formatTokens, formatUsdFromMicros } from "@/lib/format";
+import { TiltCard } from "@/components/motion/tilt-card";
+import { NumberTicker } from "@/components/motion/number-ticker";
+import { formatUsdFromMicros } from "@/lib/format";
 import { redirect } from "next/navigation";
 import { heatAndStats } from "@/server/fleet";
 
@@ -37,12 +39,18 @@ export default async function ActivityPage() {
             ))}
           </ul>
         </div>
-        <div className="card flex flex-col gap-4 p-4">
-          <h2 className="text-sm text-muted-foreground">This week</h2>
-          <p className="num text-3xl">{formatTokens(stats.weekTokens)}</p>
-          <p className="text-sm text-muted-foreground">input + output tokens</p>
-          <p className="num text-xl">{stats.weekDone} tasks marked done</p>
-        </div>
+        <TiltCard>
+          <div className="card flex flex-col gap-4 p-4">
+            <h2 className="text-sm text-muted-foreground">This week</h2>
+            <p className="num text-3xl">
+              <NumberTicker value={stats.weekTokens} locale />
+            </p>
+            <p className="text-sm text-muted-foreground">input + output tokens</p>
+            <p className="num text-xl">
+              <NumberTicker value={stats.weekDone} /> tasks marked done
+            </p>
+          </div>
+        </TiltCard>
       </section>
     </div>
   );

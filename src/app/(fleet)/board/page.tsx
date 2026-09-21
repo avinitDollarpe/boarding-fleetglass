@@ -1,9 +1,7 @@
-import Link from "next/link";
 import { auth } from "@/auth";
 import { addTask, loadSample } from "@/app/actions";
-import { StateBadge, TriggerLabel } from "@/components/app/state-badge";
-import { formatTokens, formatUsdFromMicros } from "@/lib/format";
-import { STATES } from "@/lib/states";
+import { BoardStats } from "@/components/app/board-stats";
+import { KanbanBoard, type BoardCard } from "@/components/app/kanban-board";
 import { redirect } from "next/navigation";
 import { heatAndStats, listTasks } from "@/server/fleet";
 
@@ -14,10 +12,6 @@ export default async function BoardPage() {
   if (!session?.user?.id) redirect("/login");
   const [tasks, stats] = await Promise.all([listTasks(session.user.id), heatAndStats(session.user.id)]);
   const parents = tasks.filter((task) => !task.parentId);
-  const childCount = new Map<string, number>();
-  for (const task of tasks) {
-    if (task.parentId) childCount.set(task.parentId, (childCount.get(task.parentId) ?? 0) + 1);
-  }
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -33,19 +27,12 @@ export default async function BoardPage() {
           </form>
         </div>
       </div>
-      <dl className="grid gap-3 sm:grid-cols-4">
-        {[
-          ["Open", String(parents.filter((task) => task.state !== "Done" && task.state !== "Cancelled").length)],
-          ["Plan blocked", String(parents.filter((task) => task.state === "blocked:cursor_plan").length)],
-          ["Tokens, 7d", formatTokens(stats.weekTokens)],
-          ["Estimate, 7d", formatUsdFromMicros(stats.weekCost)],
-        ].map(([label, value]) => (
-          <div key={label} className="card p-4">
-            <dt className="text-sm text-muted-foreground">{label}</dt>
-            <dd className="num mt-2 text-2xl">{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <BoardStats
+        open={parents.filter((task) => task.state !== "Done" && task.state !== "Cancelled").length}
+        blocked={parents.filter((task) => task.state === "blocked:cursor_plan").length}
+        tokens={stats.weekTokens}
+        costMicros={stats.weekCost}
+      />
       {parents.some((task) => task.isSample) ? (
         <p className="text-sm text-muted-foreground">Sample fleet is on this board. Token rows sourced as sample are generated locally so the heatmap has a shape.</p>
       ) : null}
@@ -70,36 +57,21 @@ export default async function BoardPage() {
           Add task
         </button>
       </form>
-      <div className="flex gap-4 overflow-x-auto pb-4 pe-8">
-        {STATES.map((state) => {
-          const column = parents.filter((task) => task.state === state);
-          return (
-            <section key={state} className="card w-72 shrink-0 p-3">
-              <header className="mb-3 flex items-center justify-between gap-2">
-                <StateBadge state={state} />
-                <span className="num text-sm text-muted-foreground">{column.length}</span>
-              </header>
-              <ul className="flex flex-col gap-2">
-                {column.length === 0 ? <li className="px-1 py-2 text-sm text-muted-foreground">None</li> : null}
-                {column.map((task) => (
-                  <li key={task.id}>
-                    <Link href={`/tasks/${task.id}`} className="block rounded-[12px] border border-border bg-background p-3">
-                      <div className="font-medium">{task.name}</div>
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <TriggerLabel trigger={task.trigger} />
-                        <span className="num text-xs text-muted-foreground">{formatTokens(task.inputTokens + task.outputTokens)}</span>
-                      </div>
-                      {childCount.get(task.id) ? (
-                        <div className="mt-2 text-xs text-muted-foreground">{childCount.get(task.id)} subtasks</div>
-                      ) : null}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          );
+      <KanbanBoard
+        cards={parents.map((task): BoardCard => {
+          const children = tasks.filter((child) => child.parentId === task.id);
+          return {
+            id: task.id,
+            name: task.name,
+            owner: task.owner,
+            state: task.state,
+            trigger: task.trigger,
+            tokens: task.inputTokens + task.outputTokens,
+            subtasks: children.length,
+            subtasksDone: children.filter((child) => child.state === "Done").length,
+          };
         })}
-      </div>
+      />
     </div>
   );
 }

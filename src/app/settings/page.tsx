@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { mintKey, revokeKey } from "@/app/actions";
 import { Shell } from "@/components/app/shell";
+import { TiltCard } from "@/components/motion/tilt-card";
 import { listIngestKeys } from "@/server/keys";
 import { readPlan } from "@/server/plan";
 
@@ -24,6 +25,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             {plan.hint ? ` · key ···${plan.hint}` : ""}
           </p>
         </div>
+        <TiltCard>
         <section className="card flex flex-col gap-3 p-4">
           <h2 className="text-lg font-medium">Ingest key</h2>
           <p className="text-sm text-muted-foreground">Gilfoyle calls the API with this bearer token. It is shown once.</p>
@@ -56,10 +58,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             ))}
           </ul>
         </section>
+        </TiltCard>
         <section className="card flex flex-col gap-3 p-4">
           <h2 className="text-lg font-medium">Integrations</h2>
           <p className="text-sm text-muted-foreground">
-            Richard (@richard), the Slack request URL, and GitHub mention targets live under Integrations.
+            Slack bots are saved on this account: signing secret, bot token, and who may mention them. GitHub mention targets live there too.
           </p>
           <Link href="/settings/integrations" className="press btn btn-quiet w-fit">
             Open integrations
