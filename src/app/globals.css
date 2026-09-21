@@ -126,10 +126,34 @@ h3 {
   box-shadow: var(--shadow-border);
 }
 
+/* Signed-in app shares the charcoal board. Login stays on the light canvas. */
+.fleet-app {
+  --background: oklch(0.16 0.008 50);
+  --foreground: oklch(0.97 0.006 95);
+  --card: oklch(0.21 0.008 50);
+  --card-foreground: oklch(0.97 0.006 95);
+  --muted: oklch(0.25 0.008 50);
+  --muted-foreground: oklch(0.72 0.012 80);
+  --border: oklch(1 0 0 / 0.1);
+  --field: oklch(0.14 0.008 50);
+  --primary: oklch(0.72 0.1 178);
+  --primary-hover: oklch(0.76 0.1 178);
+  --primary-foreground: oklch(0.16 0.03 180);
+  --accent: oklch(0.72 0.1 178);
+  --ring: oklch(0.72 0.1 178);
+  --danger: oklch(0.76 0.12 25);
+  --success: oklch(0.78 0.09 155);
+  --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.08);
+  --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.13);
+  color-scheme: dark;
+  background: var(--background);
+  color: var(--foreground);
+}
+
 /* Charcoal kanban. Column radius 16px = 8px padding + 8px card radius. */
 .fleet-board {
-  background: oklch(0.16 0.008 50);
-  color: oklch(0.97 0.006 95);
+  background: var(--background);
+  color: var(--foreground);
 }
 
 .fleet-board .text-muted-foreground {

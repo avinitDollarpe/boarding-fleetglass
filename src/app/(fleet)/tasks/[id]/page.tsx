@@ -44,8 +44,8 @@ export default async function TaskPage({
           <TriggerLabel trigger={task.trigger} />
           {task.owner ? <span>{task.owner}</span> : null}
           {task.sourceRef ? (
-            <a href={task.sourceRef} className="text-primary">
-              {task.sourceRef}
+            <a href={task.sourceRef} className="inline-block max-w-md truncate text-primary">
+              Source
             </a>
           ) : null}
           {task.bcId ? (
@@ -89,7 +89,7 @@ export default async function TaskPage({
           </select>
           <p className="text-xs text-muted-foreground">Stored as {task.state}</p>
           <button type="submit" className="press btn btn-quiet">
-            Update state
+            Move column
           </button>
           {task.idempotencyKey ? <p className="text-xs text-muted-foreground">Idempotency {task.idempotencyKey}</p> : null}
           {typeof payload.commenter === "string" ? <p className="text-xs text-muted-foreground">Commenter {payload.commenter}</p> : null}
