@@ -73,3 +73,42 @@ export function stateForColumn(column: BoardColumnId): TaskState {
   if (!match) return "Holding";
   return match.state;
 }
+
+export function statesInColumn(column: BoardColumnId): TaskState[] {
+  return (Object.entries(COLUMN_FOR_STATE) as [TaskState, BoardColumnId][])
+    .filter(([, id]) => id === column)
+    .map(([state]) => state);
+}
+
+export type FleetHealth = "queued" | "on_track" | "at_risk" | "blocked" | "cancelled";
+
+/** Card status pill. Watching stages are at risk; blocked states stay blocked. */
+export function fleetHealth(state: string): FleetHealth {
+  if (state === "Blocked" || state === "blocked:cursor_plan") return "blocked";
+  if (state === "Watching 1/3" || state === "Watching 2/3" || state === "Watching 3/3") return "at_risk";
+  if (state === "Cancelled") return "cancelled";
+  if (state === "Holding") return "queued";
+  return "on_track";
+}
+
+export function fleetHealthLabel(health: FleetHealth): string {
+  if (health === "on_track") return "On track";
+  if (health === "at_risk") return "At risk";
+  if (health === "blocked") return "Blocked";
+  if (health === "cancelled") return "Cancelled";
+  return "Queued";
+}
+
+/** Subtask completion when the task has children; otherwise how far the stored state has moved. */
+export function boardProgress(state: string, subtasks: number, subtasksDone: number): number {
+  if (subtasks > 0) return Math.round((subtasksDone / subtasks) * 100);
+  if (state === "Done") return 100;
+  if (state === "Ready for review") return 85;
+  if (state === "Watching 3/3") return 75;
+  if (state === "Watching 2/3") return 55;
+  if (state === "Working") return 40;
+  if (state === "Watching 1/3") return 30;
+  if (state === "Blocked" || state === "blocked:cursor_plan") return 15;
+  if (state === "Cancelled") return 0;
+  return 8;
+}

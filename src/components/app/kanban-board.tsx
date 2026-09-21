@@ -15,15 +15,25 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { Calendar, MoreHorizontal } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
 import { moveTask } from "@/app/actions";
-import { TriggerLabel } from "@/components/app/state-badge";
 import { EASE_OUT } from "@/lib/ease";
-import { formatTokens } from "@/lib/format";
-import { BOARD_COLUMNS, boardColumn, boardLabel, isBoardColumn, stateForColumn, type BoardColumnId } from "@/lib/states";
+import {
+  BOARD_COLUMNS,
+  boardColumn,
+  boardLabel,
+  boardProgress,
+  fleetHealth,
+  fleetHealthLabel,
+  isBoardColumn,
+  stateForColumn,
+  statesInColumn,
+  type BoardColumnId,
+  type FleetHealth,
+} from "@/lib/states";
 
 export type BoardCard = {
   id: string;
@@ -34,6 +44,26 @@ export type BoardCard = {
   tokens: number;
   subtasks: number;
   subtasksDone: number;
+  updatedAt: string;
+};
+
+const HEALTH_COLOR: Record<FleetHealth, string> = {
+  on_track: "oklch(0.78 0.14 150)",
+  at_risk: "oklch(0.82 0.14 85)",
+  blocked: "oklch(0.68 0.18 25)",
+  queued: "oklch(0.72 0.02 80)",
+  cancelled: "oklch(0.62 0.01 80)",
+};
+
+const TRIGGER: Record<string, { label: string; className: string }> = {
+  github_pr_mention: { label: "GitHub", className: "bg-[oklch(0.62_0.12_250/0.28)] text-[oklch(0.88_0.06_250)]" },
+  slack_bot_mention: { label: "Slack", className: "bg-[oklch(0.58_0.12_320/0.3)] text-[oklch(0.9_0.05_320)]" },
+  chat_delegate: { label: "Chat", className: "bg-[oklch(0.55_0.08_180/0.35)] text-[oklch(0.9_0.05_180)]" },
+};
+
+const COLUMN_ACCENT: Partial<Record<BoardColumnId, string>> = {
+  IN_REVIEW: "review",
+  BLOCKED: "blocked",
 };
 
 function initials(owner: string) {
@@ -42,36 +72,72 @@ function initials(owner: string) {
   return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
 }
 
-function CardBody({ task, handle }: { task: BoardCard; handle?: Record<string, unknown> }) {
-  const progress = task.subtasks > 0 ? Math.round((task.subtasksDone / task.subtasks) * 100) : 0;
+function whenLabel(iso: string, state: string) {
+  if (state === "Holding" || state === "Blocked" || state === "blocked:cursor_plan") return "Waiting";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) return "Today";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function ProgressRing({ value, color }: { value: number; color: string }) {
+  const radius = 8;
+  const circ = 2 * Math.PI * radius;
+  const offset = circ - (Math.min(100, Math.max(0, value)) / 100) * circ;
   return (
-    <article className="rounded-[8px] bg-background p-3 shadow-[var(--shadow-border)]">
-      <div className="flex items-start gap-2">
-        <button type="button" className="press -ms-1 mt-0.5 flex size-11 shrink-0 items-center justify-center text-muted-foreground" aria-label={`Move ${task.name}`} {...handle}>
-          <GripVertical className="size-4" strokeWidth={1.5} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <Link href={`/tasks/${task.id}`} className="block font-medium leading-snug">
-            {task.name}
-          </Link>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <TriggerLabel trigger={task.trigger} />
-            <span className="inline-flex size-7 items-center justify-center rounded-full bg-muted text-[10px] font-medium" title={task.owner || "Unassigned"}>
-              {initials(task.owner)}
-            </span>
-          </div>
-          {task.subtasks > 0 ? (
-            <div className="mt-2">
-              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                <div className="h-1.5 rounded-full bg-primary" style={{ width: `${progress}%` }} />
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {task.subtasksDone}/{task.subtasks} subtasks
-              </p>
-            </div>
-          ) : null}
-          <p className="num mt-2 text-xs text-muted-foreground">{formatTokens(task.tokens)} tokens</p>
-        </div>
+    <span className="inline-flex items-center gap-1 text-[oklch(0.78_0.01_80)]">
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+        <circle cx="10" cy="10" r={radius} fill="none" stroke="oklch(1 0 0 / 0.16)" strokeWidth="2" />
+        <circle
+          cx="10"
+          cy="10"
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          transform="rotate(-90 10 10)"
+        />
+      </svg>
+      <span className="num text-[11px]">{value}%</span>
+    </span>
+  );
+}
+
+function CardBody({ task, handle }: { task: BoardCard; handle?: Record<string, unknown> }) {
+  const health = fleetHealth(task.state);
+  const color = HEALTH_COLOR[health];
+  const progress = boardProgress(task.state, task.subtasks, task.subtasksDone);
+  const trigger = TRIGGER[task.trigger] ?? { label: task.trigger, className: "bg-white/10 text-white/80" };
+  const owner = task.owner.trim() || "Unassigned";
+  return (
+    <article {...handle} aria-label={`Move ${task.name}`} className="board-card cursor-grab p-3 active:cursor-grabbing">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${trigger.className}`}>
+          {trigger.label}
+        </span>
+        <span className="num min-w-0 truncate text-[11px] text-[oklch(0.7_0.012_80)]">{task.id.slice(0, 8)}</span>
+        <span className="ms-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-black/25 px-2 py-0.5 text-[11px] text-[oklch(0.9_0.01_95)]">
+          <span className="size-1.5 rounded-full" style={{ background: color }} />
+          {fleetHealthLabel(health)}
+        </span>
+      </div>
+      <Link href={`/tasks/${task.id}`} className="mt-2 block text-sm font-medium leading-snug text-white" onPointerDown={(event) => event.stopPropagation()}>
+        {task.name}
+      </Link>
+      <div className="mt-3 flex items-center gap-2">
+        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-white/10 text-[9px] font-medium text-white" title={owner}>
+          {initials(owner)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-[oklch(0.78_0.01_90)]">{owner}</span>
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-black/25 px-1.5 py-0.5 text-[11px] text-[oklch(0.78_0.01_80)]">
+          <Calendar className="size-3" strokeWidth={1.5} />
+          {whenLabel(task.updatedAt, task.state)}
+        </span>
+        <ProgressRing value={progress} color={color} />
       </div>
     </article>
   );
@@ -90,19 +156,51 @@ function TaskCard({ task }: { task: BoardCard }) {
   );
 }
 
-function Column({ column, tasks }: { column: BoardColumnId; tasks: BoardCard[] }) {
+function ColumnMenu({ column }: { column: BoardColumnId }) {
+  const [open, setOpen] = useState(false);
+  const states = statesInColumn(column);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        className="press flex size-8 items-center justify-center rounded-full text-[oklch(0.75_0.01_80)]"
+        aria-label={`${boardLabel(column)} states`}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <MoreHorizontal className="size-4" strokeWidth={1.5} />
+      </button>
+      {open ? (
+        <div className="absolute end-0 z-10 mt-1 w-44 rounded-[8px] bg-[oklch(0.22_0.008_50)] p-2 text-[11px] text-[oklch(0.82_0.01_90)] shadow-[0_0_0_1px_oklch(1_0_0/0.1)]">
+          {states.map((state) => (
+            <p key={state} className="px-1 py-1">
+              {state}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Column({ index, column, tasks }: { index: number; column: BoardColumnId; tasks: BoardCard[] }) {
   const { setNodeRef, isOver } = useDroppable({ id: column });
   return (
-    <section className={`column flex min-h-48 flex-col ${isOver ? "ring-2 ring-primary" : ""}`}>
-      <header className="mb-2 flex items-center justify-between gap-2 px-1">
-        <h2 className={`text-xs font-medium ${column === "IN_PROGRESS" ? "text-primary" : column === "BLOCKED" ? "text-danger" : column === "DONE" ? "text-success" : "text-muted-foreground"}`}>
-          {boardLabel(column)}
+    <section data-accent={COLUMN_ACCENT[column]} className={`board-column flex w-[280px] shrink-0 flex-col ${isOver ? "ring-2 ring-white/40" : ""}`}>
+      <header className="mb-2 flex items-center gap-2 px-1">
+        <h2 className="text-sm font-medium text-white">
+          {index}. {boardLabel(column)}
         </h2>
-        <span className="num text-xs text-muted-foreground">{tasks.length}</span>
+        <span className="num inline-flex min-w-5 items-center justify-center rounded-full bg-black/35 px-1.5 py-0.5 text-[11px] text-[oklch(0.8_0.01_90)]">
+          {tasks.length}
+        </span>
+        <span className="ms-auto">
+          <ColumnMenu column={column} />
+        </span>
       </header>
       <div ref={setNodeRef} className="flex min-h-24 flex-1 flex-col gap-2">
         <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-          {tasks.length === 0 ? <p className="px-1 py-2 text-xs text-muted-foreground">Empty</p> : null}
+          {tasks.length === 0 ? <p className="px-1 py-2 text-xs text-[oklch(0.65_0.01_80)]">Empty</p> : null}
           {tasks.map((task) => (
             <TaskCard key={task.id} task={task} />
           ))}
@@ -173,14 +271,19 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
       >
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          {BOARD_COLUMNS.map((column) => (
-            <Column key={column.id} column={column.id} tasks={items.filter((task) => boardColumn(task.state) === column.id)} />
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {BOARD_COLUMNS.map((column, index) => (
+            <Column
+              key={column.id}
+              index={index + 1}
+              column={column.id}
+              tasks={items.filter((task) => boardColumn(task.state) === column.id)}
+            />
           ))}
         </div>
         <DragOverlay>
           {active ? (
-            <div className="w-56">
+            <div className="w-[280px]">
               <CardBody task={active} />
             </div>
           ) : null}
@@ -190,14 +293,14 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
         {notice ? (
           <motion.div
             role="status"
-            className="fixed bottom-4 end-4 z-40 max-w-sm rounded-[12px] bg-card p-3 text-sm shadow-[var(--shadow-border)]"
+            className="fixed bottom-4 end-4 z-40 max-w-sm rounded-[12px] bg-[oklch(0.22_0.008_50)] p-3 text-sm text-white shadow-[0_0_0_1px_oklch(1_0_0/0.1)]"
             initial={{ opacity: 0, y: reduce ? 0 : 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: reduce ? 0 : -8 }}
             transition={{ duration: reduce ? 0 : 0.16, ease: EASE_OUT }}
           >
             <p>{notice}</p>
-            <button type="button" className="press mt-2 text-sm text-muted-foreground" onClick={() => setNotice(null)}>
+            <button type="button" className="press mt-2 text-sm text-[oklch(0.75_0.01_80)]" onClick={() => setNotice(null)}>
               Dismiss
             </button>
           </motion.div>

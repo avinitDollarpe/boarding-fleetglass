@@ -126,6 +126,8 @@ Stored states stay: `Holding`, `Working`, `Watching 1/3`, `Watching 2/3`, `Watch
 
 The board shows six columns. A drop writes the column’s canonical state. A drop inside the same column is a no-op, so a watching stage is kept until the card leaves that column. `blocked:cursor_plan` stays in Blocked; the plan gate still writes that stored state.
 
+Card health, separate from the column: Queued is `Holding`, On track is `Working`, `Ready for review`, and `Done`, At risk is `Watching 1/3`, `Watching 2/3`, and `Watching 3/3`, Blocked is `Blocked` and `blocked:cursor_plan`. The ring is subtask completion, or a fixed reading of the stored state when the task has no subtasks.
+
 | Column | Id | Stored states | Drop writes |
 | --- | --- | --- | --- |
 | Pending | `PENDING` | `Holding` | `Holding` |

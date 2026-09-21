@@ -12,10 +12,10 @@ export default async function BoardPage() {
   const [tasks, stats] = await Promise.all([listTasks(session.user.id), heatAndStats(session.user.id)]);
   const parents = tasks.filter((task) => !task.parentId);
   return (
-    <div className="flex flex-col gap-8">
+    <div className="fleet-board -mx-6 -my-8 flex min-h-[calc(100vh-4rem)] flex-col gap-6 px-6 py-8">
       <div>
-        <h1 className="page-title">Board</h1>
-        <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+        <h1 className="page-title text-white">Board</h1>
+        <p className="mt-1 max-w-xl text-sm text-[oklch(0.72_0.012_80)]">
           Tasks arrive from Slack, GitHub, or a chat handoff. Drag a card to change its column.
         </p>
       </div>
@@ -40,6 +40,7 @@ export default async function BoardPage() {
             tokens: task.inputTokens + task.outputTokens,
             subtasks: children.length,
             subtasksDone: children.filter((child) => child.state === "Done").length,
+            updatedAt: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : String(task.updatedAt),
           };
         })}
       />

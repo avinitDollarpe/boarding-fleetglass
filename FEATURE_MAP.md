@@ -43,7 +43,7 @@ Chief (Richard @richard | GitHub mention | chat_delegate)
 | --- | --- | --- |
 | Auth | Auth.js magic link | Database sessions. After send, the browser lands on `/login/check-email`. Dev mailbox at `/dev/mailbox` when `DEV_MAILBOX=1` and not on Vercel. |
 | Tenancy | `user_id` + RLS | Personal accounts. `workspace_id` nullable. No orgs in v1. |
-| Tasks | `/board`, `/api/v1/tasks` | Drag-and-drop kanban with six columns: Pending, In progress, In review, Blocked, Done, Cancelled. `blocked:cursor_plan` sits in Blocked. A drop writes that column’s canonical stored state. Same-column drops do nothing. Tasks are created by ingest, not by the board. |
+| Tasks | `/board`, `/api/v1/tasks` | Drag-and-drop kanban with six columns: Pending, In progress, In review, Blocked, Done, Cancelled. `blocked:cursor_plan` sits in Blocked. A drop writes that column’s canonical stored state. Same-column drops do nothing. Tasks are created by ingest, not by the board. Card health is Queued (`Holding`), On track (`Working`, `Ready for review`, `Done`), At risk (`Watching 1/3`–`3/3`), or Blocked (`Blocked`, `blocked:cursor_plan`). |
 | Subtasks | task detail, `POST /api/v1/tasks/:id/subtasks` | One level. Timeline, subtasks, and tokens use beui tabs. |
 | Tokens | `token_usage`, `POST /api/v1/usage`, `POST /api/v1/tasks/:id/sync` | Per task. Cursor sync upserts `cursor:{bcId}:{runId}` and rolls the delta. Cost is an estimate in micros. |
 | Heatmap | `/activity` | Account-level daily event counts, 20 weeks, Monday-first UTC, beui HeatCalendar. |
