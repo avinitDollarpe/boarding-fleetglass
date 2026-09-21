@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: fleetglass
+      POSTGRES_PASSWORD: fleetglass
+      POSTGRES_DB: fleetglass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fleetglass -d fleetglass"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://fleetglass_app:fleetglass_app@db:5432/fleetglass
+      DATABASE_URL_MIGRATE: postgres://fleetglass:fleetglass@db:5432/fleetglass
+      AUTH_SECRET: dev-only-fleetglass-auth-secret-32
+      AUTH_URL: http://localhost:3000
+      AUTH_TRUST_HOST: "true"
+      DEV_MAILBOX: "1"
+      ALLOW_PLAN_OVERRIDE: "1"
+      OWNER_EMAIL: ""
+      SLACK_SIGNING_SECRET: ""
+      SLACK_BOT_TOKEN: ""
+      SLACK_MENTION_USER_ID: U08C40K4FHN
+      SLACK_BOT_USER_ID: ""
+      INTEGRATION_SECRET_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
