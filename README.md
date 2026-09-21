@@ -1,83 +1,98 @@
 # Fleetglass
 
-One-operator board for a Cursor cloud-agent fleet. Sign in with a magic link, link a Cursor account on the board, and track tasks. Postgres is the source of truth.
+Fleetglass is a backend API. It accepts Slack and GitHub events and wakes Richard with one JSON brief. Richard routes the work. This app does not show a board and does not launch a Cursor agent.
 
-The board stays visible when the Cursor plan is inactive. New launches do not. Those tasks land in `blocked:cursor_plan`.
+## Wake Richard
 
-## Spine
+Set `CHIEF_HANDOFF_URL` to the webhook Richard already listens on. Fleetglass sends `POST` with `Content-Type: application/json` and no auth header. The URL is the secret.
 
-Chief wakes on a mention and hands Gilfoyle the context. Fleetglass writes the task, then the plan gate launches a cloud agent:
+Slack example:
 
-1. `github_pr_mention` — a PR comment on a repo under `DollarPe-Infra` or `avinitDollarpe` that @mentions `avinitDollarpe`, `cursor`, or `cursoragent`. Idempotency is the comment id. `source_ref` is the PR URL.
-2. `slack_bot_mention` — an `app_mention` from `SLACK_MENTION_USER_ID` (default `U08C40K4FHN`). Idempotency is `slack_ts`. `source_ref` is the permalink.
-3. `chat_delegate` — you delegate in chat
-
-An inactive Cursor plan stores the task as `blocked:cursor_plan` and does not launch. The board is one page: a six-column kanban (Pending, In progress, In review, Blocked, Done, Cancelled) and a Cursor plan disclosure. Plan-blocked tasks sit in Blocked. The board does not create tasks. Slack secrets are deploy env, not a settings form.
-
-## Slack Event Subscriptions
-
-Request URL:
-
-```text
-https://<your-host>/api/slack/events
+```json
+{
+  "type": "fleetglass.wake",
+  "source": "slack",
+  "text": "ship the api",
+  "url": "https://slack.com/archives/C9/p1710000001000100",
+  "author": "U08C40K4FHN",
+  "ids": {
+    "slack_ts": "1710000001.000100",
+    "event_id": "Ev9",
+    "team_id": "T1",
+    "channel_id": "C9"
+  }
+}
 ```
 
-Locally that is `http://localhost:3000/api/slack/events`. On Vercel it is `https://<project>.vercel.app/api/slack/events`.
+GitHub example:
 
-Set these on the deploy. They are not stored per user.
+```json
+{
+  "type": "fleetglass.wake",
+  "source": "github",
+  "text": "@avinitDollarpe please",
+  "url": "https://github.com/DollarPe-Infra/app/pull/3",
+  "author": "ada",
+  "ids": {
+    "comment_id": "99",
+    "repo": "DollarPe-Infra/app",
+    "pr_number": 3
+  }
+}
+```
 
-| Variable | Role |
+`source` is `slack` or `github`. `text` is the mention or the comment. `url` is the Slack permalink or the PR URL. `author` is the Slack user id or the GitHub login. `ids` holds the raw ids.
+
+| Response from Fleetglass | Meaning |
 | --- | --- |
-| `SLACK_SIGNING_SECRET` | Verifies the request. Unset is `503`. Bad signature is `401`. |
-| `SLACK_BOT_TOKEN` | Loads the permalink |
-| `SLACK_MENTION_USER_ID` | Only this Slack user creates a task. Default `U08C40K4FHN` |
-| `SLACK_BOT_USER_ID` | Optional. When set, it must appear on the event’s bot user ids |
-| `OWNER_EMAIL` | When set, only this email may sign in. Required in production |
+| 200 `{ "ok": true, "woke": true, "deduped": false }` | Richard returned 2xx |
+| 200 `{ "ok": true, "woke": false, "deduped": true }` | This Slack ts or comment id was already delivered |
+| 200 `{ "ok": true, "woke": false, "reason": "no_handoff" }` | `CHIEF_HANDOFF_URL` is unset |
+| 502 `{ "error": "wake_failed" }` | The POST failed. Slack or GitHub can retry. |
 
-1. In the Slack app, open Event Subscriptions and paste the request URL.
-2. Slack posts `url_verification`. Fleetglass checks the env signing secret and returns `200` and `{ "challenge": "<the challenge>" }`.
-3. Subscribe to `app_mention`. Other Slack users are acknowledged and ignored.
-4. Optional: set `CHIEF_HANDOFF_URL`. Fleetglass POSTs `{ "type": "fleetglass.slack_mention", "taskId", "sourceRef", "slackUser", "slackTs", "text" }`. An active Cursor plan also launches from this app.
+## Slack
 
-Pointing a live Slack app is later.
+Request URL: `https://<host>/api/slack/events`
 
-GitHub: set `GITHUB_WEBHOOK_SECRET` and send `issue_comment` or `pull_request_review_comment` to `/api/github/webhook`. Repos outside `DollarPe-Infra` and `avinitDollarpe` are ignored. A mention of `avinitDollarpe`, `cursor`, or `cursoragent` creates a task keyed by `comment_id`.
+1. Set `SLACK_SIGNING_SECRET`, and set `SLACK_MENTION_USER_ID` if it is not `U08C40K4FHN`.
+2. Paste the request URL into Event Subscriptions.
+3. Slack sends `url_verification`. Fleetglass returns 200 and `{ "challenge": "<value>" }`.
+4. Subscribe to `app_mention`. Mentions from other users are acknowledged and ignored.
+5. Set `CHIEF_HANDOFF_URL` so a kept mention wakes Richard.
 
-Duplicate events collapse on that idempotency key. A later mention on a pull request that already has a task becomes a follow-up on that parent.
+`SLACK_BOT_TOKEN` loads a permalink when you have it. The wake does not wait on that token. Optional `SLACK_BOT_USER_ID` must match a bot user id on the payload when the payload lists any.
+
+A missing signing secret is 503. A bad signature is 401.
+
+## GitHub
+
+Set `GITHUB_WEBHOOK_SECRET`. Send `issue_comment` and `pull_request_review_comment` to `https://<host>/api/github/webhook`.
+
+Fleetglass keeps a comment when all of these are true.
+
+- The signature matches.
+- The action is `created`.
+- The comment is on a pull request.
+- The repo owner is `DollarPe-Infra` or `avinitDollarpe`.
+- The body mentions `avinitDollarpe`, `cursor`, `cursoragent`, or `GITHUB_APP_SLUG`.
+
+The idempotency key is `github_comment:{comment_id}`.
+
+## Env
+
+| Variable | Required to wake | Role |
+| --- | --- | --- |
+| `CHIEF_HANDOFF_URL` | Yes | Richard's webhook |
+| `SLACK_SIGNING_SECRET` | For Slack | Request signature |
+| `SLACK_MENTION_USER_ID` | No | Default `U08C40K4FHN` |
+| `SLACK_BOT_TOKEN` | No | Permalink lookup |
+| `SLACK_BOT_USER_ID` | No | Bot id check |
+| `GITHUB_WEBHOOK_SECRET` | For GitHub | Request signature |
+| `GITHUB_APP_SLUG` | No | Extra mention login |
+| `DATABASE_URL` | No | Dedupe across processes via `wake_keys` |
+| `DATABASE_URL_MIGRATE` | To create the table | Runs `npm run migrate` |
 
 ## Local
-
-Docker Compose runs Postgres 16 and the app. One command:
-
-```bash
-docker compose up --build
-```
-
-Open http://localhost:3000. `GET /api/health` returns `{ "ok": true }`.
-
-Magic links are not mailed in this setup. After you send one, the app opens `/login/check-email`. With `DEV_MAILBOX=1`, the link is printed and listed at http://localhost:3000/dev/mailbox. That page 404s on Vercel. On Vercel, set `EMAIL_SERVER` so Nodemailer delivers the same link.
-
-The compose file sets `ALLOW_PLAN_OVERRIDE=1` and does not set `DEV_PLAN_OVERRIDE`, so launches stay closed. The board itself is visible after sign-in. To mark the plan active without a Cursor key, add this to the `app` service and recreate it:
-
-```yaml
-DEV_PLAN_OVERRIDE: "active"
-```
-
-The shell shows “Local plan override is on. This banner cannot appear on Vercel.” The override is ignored when `VERCEL` is set.
-
-Without the override, sign in and open the Cursor plan disclosure on the board. Paste a Cursor user API key from Dashboard → API Keys. Fleetglass checks identity and plan. An unreadable plan is inactive. `OWNER_EMAIL` is empty in compose so a local mailbox can sign in. Set it in production.
-
-A sample fleet can be loaded from `loadSampleFleet` in code: a GitHub parent, a follow-up on the same PR, a Slack mention, and a chat task left in `blocked:cursor_plan`. It is not a board button.
-
-### App role
-
-Migrations use the superuser `fleetglass`. The app connects as `fleetglass_app` (`NOBYPASSRLS`). Domain tables force row level security. Auth tables do not, because magic-link lookup happens before a session.
-
-```bash
-DATABASE_URL=postgres://fleetglass_app:fleetglass_app@localhost:5432/fleetglass npm run test:rls
-```
-
-## Without Docker
 
 ```bash
 cp .env.example .env.local
@@ -86,7 +101,17 @@ npm run migrate
 npm run dev
 ```
 
-Point `DATABASE_URL` at the app role and `DATABASE_URL_MIGRATE` at a role that can create tables.
+`GET /api/health` returns `{ "ok": true }`.
+
+`npm run migrate` applies `drizzle/`, including `wake_keys`. Without `DATABASE_URL`, a single process still drops duplicate deliveries. Set the URL in production.
+
+Docker Compose runs Postgres 16 and the app:
+
+```bash
+docker compose up --build
+```
+
+Open http://localhost:3000. Put the Slack and GitHub secrets and `CHIEF_HANDOFF_URL` in the `app` service environment before you expect a wake.
 
 ## Checks
 
@@ -95,67 +120,18 @@ npm run typecheck
 npm run test:plan
 npm run test:intake
 npm run test:bots
+npm run test:wake
+npm run build
 ```
 
-## Ingest
-
-Ingest keys are `fg_` bearer tokens. Send `Authorization: Bearer fg_…`.
-
-```bash
-curl -s -X POST http://localhost:3000/api/v1/tasks \
-  -H "Authorization: Bearer $FLEETGLASS_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "trigger": "github_pr_mention",
-    "commentId": "ic_123",
-    "sourceRef": "https://github.com/DollarPe-Infra/app/pull/42",
-    "payload": {
-      "repo": "DollarPe-Infra/app",
-      "prNumber": 42,
-      "prUrl": "https://github.com/DollarPe-Infra/app/pull/42",
-      "commentBody": "@avinitDollarpe fix the flaky checkout test",
-      "commenter": "chakravarti",
-      "mentionTargets": ["avinitDollarpe", "cursor", "cursoragent"],
-      "commentId": "ic_123"
-    }
-  }'
-```
-
-`201` creates the task. The same `commentId` again returns `200` and `{ "deduped": true }`. A second comment id on the same PR URL creates a child of the existing parent.
-
-`POST /api/v1/tasks/:id/launch` with `{ "prompt": "…" }` checks the plan, then calls the Cursor Cloud Agents API. `POST /api/v1/usage` records tokens. `POST /api/v1/agent-status` updates state by task id or idempotency key. `sdk/fleetglass.ts` is a small client for Gilfoyle.
+`npm run test:wake` signs a Slack challenge, a Slack mention, and a GitHub comment, and checks the brief posted to `CHIEF_HANDOFF_URL`.
 
 ## Deploy
 
-Production is Vercel plus managed Postgres (Neon or Vercel Postgres).
-
-1. Create a Postgres database and run `npm run migrate` with `DATABASE_URL_MIGRATE`. On Neon, the table owner is still subject to `FORCE ROW LEVEL SECURITY`; the app role must not bypass RLS.
-2. Import the repo in Vercel. Set:
-
-| Variable | Value |
-| --- | --- |
-| `DATABASE_URL` | App role connection string |
-| `AUTH_SECRET` | Long random string |
-| `AUTH_URL` | `https://your-domain` |
-| `AUTH_TRUST_HOST` | `true` |
-| `EMAIL_SERVER` | SMTP URL for magic links |
-| `EMAIL_FROM` | From address |
-| `INTEGRATION_SECRET_KEY` | 64 hex characters |
-| `OWNER_EMAIL` | Only this email may sign in |
-| `SLACK_SIGNING_SECRET` | Slack request signature |
-| `SLACK_BOT_TOKEN` | Slack bot token |
-| `SLACK_MENTION_USER_ID` | Slack user who may mention the bot |
-| `CHIEF_HANDOFF_URL` | Optional POST target after a Slack task is created |
-| `GITHUB_APP_SLUG` | Extra GitHub mention target |
-| `GITHUB_WEBHOOK_SECRET` | GitHub webhook secret |
-| `DEV_MAILBOX` | unset |
-| `ALLOW_PLAN_OVERRIDE` | unset |
-| `DEV_PLAN_OVERRIDE` | unset |
-
-3. Do not set `VERCEL` yourself; Vercel sets it, and that disables the plan override.
+Production is Vercel plus managed Postgres. Deploy is on hold until this API is reviewed. When you do deploy, set the env table above and run `npm run migrate` with `DATABASE_URL_MIGRATE`. Point the Slack app at `https://<host>/api/slack/events` and the GitHub webhook at `https://<host>/api/github/webhook`.
 
 `output: "standalone"` is for the Docker image. Vercel builds Next.js itself.
 
 ## Layout
 
-`AGENTS.md` is the agent contract. `FEATURE_MAP.md` maps triggers, the plan gate, and the API. `main` is the default base branch.
+`AGENTS.md` is the agent contract. `FEATURE_MAP.md` is the route and wake reference. `main` is the default base branch.
