@@ -15,6 +15,9 @@ export const SLACK_DISPLAY_NAME = "Richard";
 
 export const SLACK_HANDLE = "richard";
 
+/** Slack user who may mention Richard. `SLACK_MENTION_USER_ID` overrides this. */
+export const SLACK_MENTION_USER_DEFAULT = "U08C40K4FHN";
+
 export function cleanHandle(value: string, fallback = SLACK_HANDLE): string {
   const trimmed = value.trim().replace(/^@/, "");
   return NAME.test(trimmed) ? trimmed : fallback;

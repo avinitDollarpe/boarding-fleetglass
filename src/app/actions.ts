@@ -2,10 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { auth, signIn } from "@/auth";
+import { auth, ownerMaySignIn, signIn } from "@/auth";
 import { FleetError, getTask, ingestUsage, launchTask, transitionTask } from "@/server/fleet";
-import { createIngestKey, revokeIngestKey } from "@/server/keys";
-import { disconnectGithub, disconnectSlack, saveGithubSettings, saveSlackSettings } from "@/server/installs";
 import { boardColumn, isBoardColumn, stateForColumn } from "@/lib/states";
 import { linkCursorKey } from "@/server/plan";
 
@@ -18,6 +16,7 @@ async function userId() {
 export async function requestMagicLink(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) redirect("/login?error=email");
+  if (!ownerMaySignIn(email)) redirect("/login?error=owner");
   await signIn("nodemailer", { email, redirect: false, redirectTo: "/board" });
   redirect("/login/check-email");
 }
@@ -25,14 +24,14 @@ export async function requestMagicLink(formData: FormData) {
 export async function linkCursor(formData: FormData) {
   const id = await userId();
   const plan = await linkCursorKey(id, String(formData.get("apiKey") ?? ""));
-  redirect(plan.status === "active" ? "/board" : "/onboarding?checked=1");
+  redirect(plan.status === "active" ? "/board" : "/board?checked=1");
 }
 
 export async function recheckPlan() {
   const id = await userId();
   const { verifyPlan } = await import("@/server/plan");
   const plan = await verifyPlan(id);
-  redirect(plan.status === "active" ? "/board" : "/onboarding?checked=1");
+  redirect(plan.status === "active" ? "/board" : "/board?checked=1");
 }
 
 export async function moveTask(taskId: string, state: string) {
@@ -105,63 +104,3 @@ export async function recordUsage(formData: FormData) {
   revalidatePath("/activity");
 }
 
-export async function mintKey(formData: FormData) {
-  const id = await userId();
-  const created = await createIngestKey(id, String(formData.get("name") ?? "Gilfoyle"));
-  redirect(`/settings?key=${encodeURIComponent(created.secret)}`);
-}
-
-export async function revokeKey(formData: FormData) {
-  const id = await userId();
-  await revokeIngestKey(id, String(formData.get("id") ?? ""));
-  revalidatePath("/settings");
-}
-
-function lines(value: FormDataEntryValue | null): string[] {
-  return String(value ?? "")
-    .split(/[\n,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-export async function saveSlack(formData: FormData) {
-  const id = await userId();
-  const saved = await saveSlackSettings(id, {
-    id: String(formData.get("id") ?? "") || null,
-    displayName: String(formData.get("displayName") ?? ""),
-    handle: String(formData.get("handle") ?? ""),
-    aliases: lines(formData.get("aliases")),
-    channelAllowlist: lines(formData.get("channelAllowlist")),
-    enabled: formData.get("enabled") === "on",
-    signingSecret: String(formData.get("signingSecret") ?? ""),
-    botToken: String(formData.get("botToken") ?? ""),
-    teamId: String(formData.get("teamId") ?? ""),
-    apiAppId: String(formData.get("apiAppId") ?? ""),
-    botUserId: String(formData.get("botUserId") ?? ""),
-    ownerSlackUserIds: lines(formData.get("ownerSlackUserIds")),
-    ownerEmails: lines(formData.get("ownerEmails")),
-  });
-  revalidatePath("/settings/integrations");
-  if (!saved.ok) redirect(`/settings/integrations?slack=${saved.error}`);
-}
-
-export async function saveGithub(formData: FormData) {
-  const id = await userId();
-  await saveGithubSettings(id, {
-    mentionTargets: lines(formData.get("mentionTargets")),
-    enabled: formData.get("enabled") === "on",
-  });
-  revalidatePath("/settings/integrations");
-}
-
-export async function disconnectSlackInstall(formData: FormData) {
-  const id = await userId();
-  await disconnectSlack(id, String(formData.get("id") ?? ""));
-  revalidatePath("/settings/integrations");
-}
-
-export async function disconnectGithubInstall() {
-  const id = await userId();
-  await disconnectGithub(id);
-  revalidatePath("/settings/integrations");
-}

@@ -14,14 +14,18 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <div>
         <p className="text-sm text-muted-foreground">Fleetglass</p>
         <h1 className="page-title mt-2">Sign in</h1>
-        <p className="mt-2 text-sm text-muted-foreground">A magic link signs you in. The first one creates the account.</p>
+        <p className="mt-2 text-sm text-muted-foreground">A magic link signs you in.</p>
       </div>
       <form action={requestMagicLink} className="card flex flex-col gap-3 p-4">
         <label htmlFor="email" className="text-sm">
           Email
         </label>
         <input id="email" name="email" type="email" required autoComplete="email" className="field" />
-        {query.error ? <p className="text-sm text-danger">That email did not work.</p> : null}
+        {query.error === "owner" ? (
+          <p className="text-sm text-danger">Only the owner email can sign in.</p>
+        ) : query.error ? (
+          <p className="text-sm text-danger">That email did not work.</p>
+        ) : null}
         {query.check ? (
           <p className="text-sm">
             Link sent. In local Docker, open <Link href="/dev/mailbox">the dev mailbox</Link> or the app logs.

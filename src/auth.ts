@@ -4,6 +4,12 @@ import Nodemailer from "next-auth/providers/nodemailer";
 import { db, pool } from "@/db/client";
 import { accounts, sessions, users, verificationTokens } from "@/db/schema";
 
+export function ownerMaySignIn(email: string | null | undefined): boolean {
+  const owner = process.env.OWNER_EMAIL?.trim().toLowerCase();
+  if (!owner) return true;
+  return (email ?? "").trim().toLowerCase() === owner;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   adapter: DrizzleAdapter(db, {
@@ -39,6 +45,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    signIn({ user }) {
+      return ownerMaySignIn(user.email);
+    },
     session({ session, user }) {
       session.user.id = user.id;
       return session;

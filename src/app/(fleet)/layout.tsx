@@ -9,9 +9,8 @@ export default async function FleetLayout({ children }: { children: React.ReactN
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
   const plan = await readPlan(session.user.id);
-  if (plan.status !== "active") redirect("/onboarding");
   return (
-    <Shell email={session.user.email} planActive>
+    <Shell email={session.user.email}>
       {plan.override ? (
         <p className="mb-6 rounded-[8px] border border-border bg-muted px-3 py-2 text-sm">
           Local plan override is on. This banner cannot appear on Vercel.

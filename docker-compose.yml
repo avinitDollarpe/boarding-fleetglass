@@ -28,6 +28,11 @@ services:
       AUTH_TRUST_HOST: "true"
       DEV_MAILBOX: "1"
       ALLOW_PLAN_OVERRIDE: "1"
+      OWNER_EMAIL: ""
+      SLACK_SIGNING_SECRET: ""
+      SLACK_BOT_TOKEN: ""
+      SLACK_MENTION_USER_ID: U08C40K4FHN
+      SLACK_BOT_USER_ID: ""
       INTEGRATION_SECRET_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     depends_on:
       db:
