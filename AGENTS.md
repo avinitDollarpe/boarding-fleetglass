@@ -1,6 +1,10 @@
 # Fleetglass
 
-Fleetglass is a multi-tenant SaaS. Each person signs up with email and tracks their own agent fleet. Postgres is the source of truth. Notion is not.
+## Cloud agents
+
+Before any coding, load and follow `pstack` and `caveman`. pstack means go deep first, then write less. caveman means terse communication. Code, commits, and pull requests stay normal English.
+
+Fleetglass is one operator’s Cursor fleet board. Chakravarti runs it locally, on Vercel, or in Docker. Postgres is the source of truth. Notion is not. There is no signup-for-anyone and no connector marketplace.
 
 `main` is the default base branch. Feature work branches from `main` and opens a pull request into `main`.
 
@@ -14,13 +18,13 @@ After any intake trigger, the path is the same:
 4. A launch stores `bc_id` plus the agent URL.
 5. State, subtasks, and token usage land on the dashboard.
 
-The product is only usable with an active Cursor plan. Onboarding and every new launch are gated. Babysitting a task that already has a `bc_id` may continue if the plan later lapses. Sync and usage reads are not launches.
+The board is visible without an active Cursor plan. New launches are gated. Babysitting a task that already has a `bc_id` may continue if the plan later lapses. Sync and usage reads are not launches.
 
 ### Ownership
 
 - Chief owns the live listeners. Fleetglass stores the contract, the task, and `POST /api/slack/events` so Richard’s Slack app can be pointed here later.
 - Gilfoyle owns the board, launch, and Fleetglass writes after intake. The webhook orchestrator may launch when the plan is active.
-- Richard (`@richard`) is the Slack app configured in Settings → Integrations. A Grok teammate named Fleetglass is optional and interim. Pointing Richard’s app, and making Slack’s challenge succeed against the Cursor Grok Bot webhook, is later work and does not block this app.
+- Richard (`@richard`) is the Slack app named in deploy env. A Grok teammate named Fleetglass is optional and interim. Pointing Richard’s app at `POST /api/slack/events` is later work and does not block this app.
 
 ## Intake triggers
 
@@ -29,7 +33,7 @@ The product is only usable with an active Cursor plan. Onboarding and every new 
 | Trigger | When |
 | --- | --- |
 | `github_pr_mention` | A PR comment on a repo under `DollarPe-Infra` or `avinitDollarpe` @mentions GitHub user `avinitDollarpe`, or `cursor` / `cursoragent` / `@cursor`. |
-| `slack_bot_mention` | An `app_mention` of a Slack bot saved on that user’s connector. The connector’s owner allowlist decides who may trigger it. |
+| `slack_bot_mention` | An `app_mention` from `SLACK_MENTION_USER_ID` (default `U08C40K4FHN`). Slack secrets live in deploy env. |
 | `chat_delegate` | The user delegates in chat, or another client posts the trigger to the ingest API. The dashboard does not create tasks. |
 
 `tasks.source_ref` is the PR URL for GitHub and the Slack permalink for Slack.
@@ -42,18 +46,20 @@ The product is only usable with an active Cursor plan. Onboarding and every new 
 - Idempotency key: `github_comment:{comment_id}`
 - `source_ref`: the PR URL, lowercased, without query or hash
 
-GitHub’s routine `pr-comment` automation gates on the PR author via `userAllowlist`, not on the mention. Chief listens with allowlist `avinitDollarpe` and a body filter for those mentions. `POST /api/github/webhook` covers org-wide mention intake when `GITHUB_WEBHOOK_SECRET` is set. Until a GitHub App install is stored, the webhook attributes the task to `GITHUB_FLEETGLASS_USER_ID` or `GITHUB_OWNER_EMAIL`.
+GitHub’s routine `pr-comment` automation gates on the PR author via `userAllowlist`, not on the mention. Chief listens with allowlist `avinitDollarpe` and a body filter for those mentions. `POST /api/github/webhook` covers org-wide mention intake when `GITHUB_WEBHOOK_SECRET` is set. Until a GitHub App install is stored, the webhook attributes the task to `GITHUB_FLEETGLASS_USER_ID`, then `OWNER_EMAIL`, then `GITHUB_OWNER_EMAIL`.
 
 ### Slack values
 
-Each Fleetglass user connects their own Slack bot from Settings → Integrations → Slack. A user may save more than one. The signing secret, bot token, team id, app id, bot user id, and owner allowlist are encrypted on that user’s row. They are not deploy environment variables.
+Slack is deploy env only. There is no Settings form and no Add to Slack.
 
-- Display name and handle default to Richard / `@richard` on a new form. Aliases default to `@cursoragent`, `cursoragent`, `@cursor`, `cursor bot`, `@Cursor`.
-- Channel scope defaults to `*` (every channel). An empty allowlist means the same thing.
-- Owner allowlist: Slack user ids and/or emails. Empty allowlists do not ingest. Emails are checked with `users.info` when the user id does not match.
+- `SLACK_SIGNING_SECRET` verifies `POST /api/slack/events`. Unset returns `503`. A bad signature is `401`.
+- `SLACK_BOT_TOKEN` fetches the permalink. Without it, a verified mention is acknowledged and ignored.
+- `SLACK_MENTION_USER_ID` is the only Slack user who may create a task. Default `U08C40K4FHN`.
+- `SLACK_BOT_USER_ID` is optional. When set, and the payload lists bot user ids, that id must be one of them.
+- Display name stays Richard. Handle stays `@richard`.
 - Idempotency key: the message timestamp `slack_ts`, stored as `slack:{teamId}:{channelId}:{slackTs}` (or `slack_ts:{slackTs}` when team or channel is missing). `event_id` is kept on the payload and does not win the key.
 - `source_ref`: the Slack permalink
-- Routing: `team_id` plus `api_app_id` or the bot user id on `authorizations`. `url_verification` has no team id, so the handler tries each saved signing secret.
+- The task is written to the owner account: `GITHUB_FLEETGLASS_USER_ID`, else the user row for `OWNER_EMAIL` or `GITHUB_OWNER_EMAIL`.
 
 Idempotency is unique on `(user_id, idempotency_key)`. Callers may send `idempotencyKey`. A duplicate POST returns `200` and `{ deduped: true }`.
 
@@ -61,15 +67,14 @@ Idempotency is unique on `(user_id, idempotency_key)`. Callers may send `idempot
 
 Request URL: `POST {AUTH_URL}/api/slack/events`
 
-Every Slack app uses this one URL. Fleetglass picks the connector from the payload and verifies that connector’s signing secret. A task is written to that connector’s Fleetglass user. If no connector has a signing secret, the response is `503`. A bad signature is `401`.
+One Slack app uses this URL. Fleetglass verifies `X-Slack-Signature` with `SLACK_SIGNING_SECRET`. If that env is unset, the response is `503`. A bad signature is `401`. `url_verification` returns `200` with `{ "challenge": "<value>" }`.
 
-1. In Settings → Integrations → Slack, paste the signing secret, bot token, team id, app id, and the Slack user ids or emails allowed to mention the bot.
+1. Set `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, and `SLACK_MENTION_USER_ID` on the deploy. Production also sets `OWNER_EMAIL`.
 2. Paste `https://<host>/api/slack/events` into that app’s Event Subscriptions.
-3. Slack sends `url_verification`. Fleetglass checks `X-Slack-Signature` against the saved secret and returns `200` with `{ "challenge": "<value>" }`.
-4. Subscribe to `app_mention`. Mentions outside the connector’s owner allowlist are acknowledged and ignored.
-5. A kept mention creates a `slack_bot_mention` task. Optional `CHIEF_HANDOFF_URL` receives `{ "type": "fleetglass.slack_mention", ... }`. If the Cursor plan is active, the built-in orchestrator launches.
+3. Subscribe to `app_mention`. Mentions from anyone else are acknowledged and ignored.
+4. A kept mention creates a `slack_bot_mention` task on the owner account. Optional `CHIEF_HANDOFF_URL` receives `{ "type": "fleetglass.slack_mention", ... }`. If the Cursor plan is active, the built-in orchestrator launches.
 
-`SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` are optional platform OAuth credentials for Add to Slack. They do not identify a tenant. The bot token from OAuth is still stored on the user’s connector, and the signing secret is still pasted there. Live pointing of a Slack app, and the Cursor Grok Bot webhook challenge, are later.
+Live pointing of a Slack app is later. Old connector rows in Postgres are unused. Do not add a migration to drop them.
 
 A new `github_pr_mention` whose normalized PR URL already belongs to a top-level task becomes a follow-up child of that parent (`follow_up_linked`). Dedupe wins over follow-up. Subtasks are one level deep. Slack and chat do not link through `source_ref`.
 
@@ -81,9 +86,9 @@ Local override: `ALLOW_PLAN_OVERRIDE=1` and `DEV_PLAN_OVERRIDE=active|inactive`,
 
 Launch calls `POST https://api.cursor.com/v1/agents`. Persist `agent.id` as `bc_id`. HTTP 402 or a plan/billing refusal sets `blocked:cursor_plan`. Other launch failures stay `Holding` and return `cursor_launch_failed`. Never invent a `bc_id`.
 
-## Tenancy
+## Owner
 
-Personal accounts in v1. Every domain table has `user_id`. `workspace_id` is nullable for later teams. Do not build organizations.
+One operator. `OWNER_EMAIL`, when set, is the only address that may request a magic link or complete sign-in. Unset, local compose still allows whoever signs in. Production must set it. Every domain table still has `user_id`. `workspace_id` stays nullable. Do not build organizations.
 
 Postgres RLS is forced on domain tables. The app sets `app.user_id` with `set_config` inside a transaction. The migrate role may bypass RLS. The app role `fleetglass_app` is `NOBYPASSRLS`.
 
@@ -103,9 +108,9 @@ Ingest-key lookup uses policy `integrations_key_lookup`: one unrevoked ingest ro
 Bearer ingest keys (`fg_…`), shown once. Session cookie routes are the dashboard.
 
 - `GET/POST /api/v1/plan` — live plan check
-- `GET/PUT /api/v1/integrations` — Slack bot and GitHub App settings, without secrets
-- `GET/PUT /api/v1/aliases` — Richard’s handle and aliases
-- `POST /api/slack/events` — shared Event Subscriptions URL. Verifies the connector’s signing secret. `app_mention` ingests into that user’s account when the owner allowlist matches
+- `GET/PUT /api/v1/integrations` — GitHub App settings. Slack on this route is a note that secrets are env-only
+- `GET/PUT /api/v1/aliases` — read-only note. PUT returns `410` `slack_env_only`
+- `POST /api/slack/events` — Event Subscriptions URL. Verifies `SLACK_SIGNING_SECRET`. `app_mention` from `SLACK_MENTION_USER_ID` ingests into the owner account
 - `POST /api/github/webhook` — signed GitHub listener for `DollarPe-Infra` and `avinitDollarpe`. Idempotency is `comment_id`
 - `GET/POST /api/v1/tasks` — list; create with trigger metadata. `201` new, `200` deduped. `?sourceRef=` filters parents
 - `GET/PATCH/DELETE /api/v1/tasks/:id`
@@ -155,4 +160,4 @@ npm run test:bots
 docker compose up --build
 ```
 
-`GET /api/health` returns `{ ok: true }`. Sign in at `/login`. With `DEV_MAILBOX=1`, open the link at `/dev/mailbox`. Link a Cursor key on `/onboarding`, or set `DEV_PLAN_OVERRIDE=active` off Vercel to preview the board. Load the sample fleet only after the plan is active. `npm run test:rls` needs `DATABASE_URL` pointed at `fleetglass_app`.
+`GET /api/health` returns `{ ok: true }`. Sign in at `/login`. With `DEV_MAILBOX=1`, open the link at `/dev/mailbox`. The board is `/board` even when the plan is inactive. The Cursor key sits in the plan disclosure on that page. `/activity`, `/settings`, `/onboarding`, and `/signup` redirect to `/board`. `npm run test:rls` needs `DATABASE_URL` pointed at `fleetglass_app`.
