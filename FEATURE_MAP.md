@@ -1,68 +1,105 @@
 # Feature map
 
-Fleetglass Postgres is the source of truth. One operator. Chief owns the live listeners. Gilfoyle writes and launches. Cursor cloud agents do the work, and only when the Cursor plan is active. The board stays up when the plan is inactive.
+Fleetglass is an API. Slack and GitHub wake Richard. Postgres stores dedupe keys when `DATABASE_URL` is set. There is no board.
 
 ## Spine
 
 ```
-Chief (Richard @richard | GitHub mention | chat_delegate)
-        → handoff Gilfoyle
-        → Fleetglass task (create, follow-up, or dedupe)
-        → Cursor plan gate
-        → Cloud Agent
-        → state / token / subtask updates
-        → board, task detail, heatmap
+Slack app_mention
+GitHub PR comment
+        → signature and filter
+        → fleetglass.wake
+        → POST CHIEF_HANDOFF_URL
+        → Richard routes
 ```
 
-## Triggers
+## Routes
 
 | Feature | Where | Behavior |
 | --- | --- | --- |
-| `github_pr_mention` | `tasks.trigger`, `src/lib/bots.ts`, `POST /api/github/webhook` | User `avinitDollarpe`. Repos under `DollarPe-Infra` and `avinitDollarpe`. Mentions `avinitDollarpe`, `cursor`, or `cursoragent`. `source_ref` is the PR URL. Idempotency is `github_comment:{comment_id}`. |
-| `slack_bot_mention` | `POST /api/slack/events` | Signature is `SLACK_SIGNING_SECRET`. Only `SLACK_MENTION_USER_ID` (default `U08C40K4FHN`) creates a task on the owner account. `source_ref` is the permalink. Idempotency is `slack_ts`, not `event_id`. |
-| `chat_delegate` | ingest API | User delegates in chat. The dashboard does not create tasks. |
-| Idempotency | `tasks.idempotency_key`, unique `(user_id, idempotency_key)` | GitHub key is the comment id. Slack key is `slack:{team}:{channel}:{slack_ts}`. Duplicate webhook returns the existing task. |
-| PR follow-up | `tasks.parent_id` | A later GitHub mention on a PR that already has a top-level task links a child. Dedupe wins. |
-| Slack events | `POST /api/slack/events` | Env signing secret. Unset is `503`. Bad signature is `401`. `url_verification` returns `{ challenge }`. `app_mention` from anyone else is ignored. |
-| Slack env | deploy env | `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, `SLACK_MENTION_USER_ID`, optional `SLACK_BOT_USER_ID`. No settings form and no OAuth. |
-| GitHub webhook | `POST /api/github/webhook` | Signed `issue_comment` and `pull_request_review_comment`. Out-of-scope owners are ignored. Env owner fallback until an App install is stored. |
+| Health | `GET /api/health` | `{ "ok": true }` |
+| Slack events | `POST /api/slack/events` | `src/server/listeners.ts` `receiveSlackEvent` |
+| GitHub webhook | `POST /api/github/webhook` | `receiveGithubWebhook` |
+| Home | `GET /` | Names the three routes |
 
-## Plan gate
+## Slack
 
-| Feature | Where | Behavior |
-| --- | --- | --- |
-| Account link | `cursor_accounts`, `POST /api/cursor/link` | Cursor user API key, encrypted at rest. |
-| Verify | `src/lib/plan.ts`, `GET/POST /api/v1/plan` | `GetPlanInfo` plus `interpretPlan`. Fail closed. |
-| Blocked state | `blocked:cursor_plan` | Exact state when the plan is inactive. Task still exists. No spin-up. |
-| Launch | `POST /api/v1/tasks/:id/launch` | Re-checks the plan. Stores `bc_id` and agent URL from Cursor. 402 or billing refusal blocks. Other errors stay `Holding`. |
-| Local override | `DEV_PLAN_OVERRIDE` | Off Vercel only, and only when `ALLOW_PLAN_OVERRIDE=1`. Banner on the signed-in shell. |
-
-## Board and ingest
-
-| Feature | Where | Behavior |
-| --- | --- | --- |
-| Auth | Auth.js magic link | Database sessions. After send, the browser lands on `/login/check-email`. `OWNER_EMAIL` locks who may sign in. Dev mailbox at `/dev/mailbox` when `DEV_MAILBOX=1` and not on Vercel. |
-| Tenancy | `user_id` + RLS | Personal accounts. `workspace_id` nullable. No orgs in v1. |
-| Tasks | `/board`, `/api/v1/tasks` | One page: drag-and-drop kanban with six columns plus a native Cursor plan disclosure. Pending, In progress, In review, Blocked, Done, Cancelled. `blocked:cursor_plan` sits in Blocked. A drop writes that column’s canonical stored state. Same-column drops do nothing. Tasks are created by ingest, not by the board. Card health is Queued (`Holding`), On track (`Working`, `Ready for review`, `Done`), At risk (`Watching 1/3`–`3/3`), or Blocked (`Blocked`, `blocked:cursor_plan`). |
-| Subtasks | task detail, `POST /api/v1/tasks/:id/subtasks` | One level. Timeline, subtasks, and tokens use beui tabs. |
-| Tokens | `token_usage`, `POST /api/v1/usage`, `POST /api/v1/tasks/:id/sync` | Per task. Cursor sync upserts `cursor:{bcId}:{runId}` and rolls the delta. Cost is an estimate in micros. |
-| Heatmap | `/activity` | Redirects to `/board`. Weekly totals still show on the board. |
-| Agent status | `POST /api/v1/agent-status` | Gilfoyle updates state, `bc_id`, PR URL by task id or idempotency key. New `bc_id` requires an active plan. |
-| Ingest keys | `POST /api/v1` key routes | `fg_` bearer tokens. SHA-256 lookup, AES-256-GCM at rest. `/settings` redirects to `/board`. |
-| Sample fleet | `loadSampleFleet` | GitHub parent + follow-up on one PR, a Slack mention, and a chat task left at `blocked:cursor_plan`. Marked `is_sample`. Not exposed on the board. |
-
-## Roles
-
-| Role | Owns |
+| Case | Behavior |
 | --- | --- |
-| Chief | Live listeners. Hands off to Gilfoyle. `pr-comment` allowlist is `avinitDollarpe` plus a mention body filter. |
-| Gilfoyle | Board, Cursor launch, Fleetglass writes |
-| Richard | Slack app (`@richard`). Events URL lives in this repo; pointing the app is later. |
-| Fleetglass | Source of truth, plan gate, dashboard, ingest API |
-| Cursor Cloud | Worker. Refused when the plan is inactive |
+| Signing | `SLACK_SIGNING_SECRET` and `X-Slack-Signature`. Unset secret is 503 `slack_unconfigured`. Bad signature is 401 `invalid_signature`. |
+| Challenge | `url_verification` returns 200 `{ "challenge": "<value>" }`. |
+| Event | `app_mention` only. Other events return 200 `ignored`. |
+| Owner | `SLACK_MENTION_USER_ID`, default `U08C40K4FHN`. Anyone else is `ignored: owner`. |
+| Bot id | Optional `SLACK_BOT_USER_ID`. When set, and the payload lists bot user ids, that id must be one of them. |
+| Permalink | `SLACK_BOT_TOKEN` calls `chat.getPermalink`. Without the token, the URL is `https://slack.com/archives/{channel}/p{ts}`. The wake still runs. |
 
-A Grok teammate named Fleetglass is an interim intake persona only.
+## GitHub
+
+| Case | Behavior |
+| --- | --- |
+| Signing | `GITHUB_WEBHOOK_SECRET` and `X-Hub-Signature-256`. Unset is 503. Bad signature is 401. |
+| Events | `issue_comment` and `pull_request_review_comment`, action `created`, on a pull request. |
+| Repos | `DollarPe-Infra` and `avinitDollarpe`. |
+| Mentions | `avinitDollarpe`, `cursor`, `cursoragent`, plus `GITHUB_APP_SLUG`. |
+| Idempotency | `github_comment:{comment_id}` |
+
+## Richard wake
+
+Code: `src/server/wake.ts` `deliverRichardWake`.
+
+HTTP contract. `POST $CHIEF_HANDOFF_URL` with `Content-Type: application/json`. No authorization header.
+
+Slack brief:
+
+```json
+{
+  "type": "fleetglass.wake",
+  "source": "slack",
+  "text": "ship the api",
+  "url": "https://slack.com/archives/C9/p1710000001000100",
+  "author": "U08C40K4FHN",
+  "ids": {
+    "slack_ts": "1710000001.000100",
+    "event_id": "Ev9",
+    "team_id": "T1",
+    "channel_id": "C9"
+  }
+}
+```
+
+GitHub brief:
+
+```json
+{
+  "type": "fleetglass.wake",
+  "source": "github",
+  "text": "@avinitDollarpe please",
+  "url": "https://github.com/DollarPe-Infra/app/pull/3",
+  "author": "ada",
+  "ids": {
+    "comment_id": "99",
+    "repo": "DollarPe-Infra/app",
+    "pr_number": 3
+  }
+}
+```
+
+| Fleetglass response | When |
+| --- | --- |
+| 200 `{ "ok": true, "woke": true, "deduped": false }` | Richard returned 2xx |
+| 200 `{ "ok": true, "woke": false, "deduped": true }` | Key already claimed |
+| 200 `{ "ok": true, "woke": false, "reason": "no_handoff" }` | `CHIEF_HANDOFF_URL` unset. Key is not stored. |
+| 502 `{ "error": "wake_failed" }` | POST failed or Richard was not 2xx. Key is released. |
+
+## Dedupe
+
+| Key | Shape |
+| --- | --- |
+| Slack | `slack:{team}:{channel}:{slack_ts}` or `slack_ts:{slack_ts}` |
+| GitHub | `github_comment:{comment_id}` |
+
+Table `wake_keys` in `drizzle/0004_wake_keys.sql`. No RLS. Grant is `SELECT, INSERT, DELETE` for `fleetglass_app` when that role exists. Without `DATABASE_URL`, dedupe is in-process only.
 
 ## Out of scope
 
-Organizations, Notion as source of truth, invented cloud-agent ids, pointing Richard’s Slack app at the request URL, and making Slack’s `url_verification` challenge succeed against the Cursor Grok Bot webhook.
+Board, magic-link sign-in, task CRUD, Cursor launch, organizations, Notion import, and a second chat API. Do not invent a `bc_id`. Do not drop old tables.

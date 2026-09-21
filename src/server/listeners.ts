@@ -1,9 +1,8 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import { githubMentioned, githubMentionTargets, githubRepoInScope, SLACK_DISPLAY_NAME, SLACK_MENTION_USER_DEFAULT } from "@/lib/bots";
+import { githubMentioned, githubMentionTargets, githubRepoInScope, SLACK_MENTION_USER_DEFAULT } from "@/lib/bots";
+import { normalizeIntake } from "@/lib/intake";
 import { parseSlackEvent, verifySlackSignature, type SlackEventBody } from "@/lib/slack-event";
-import { pool } from "@/db/client";
-import { createTask, launchTask } from "@/server/fleet";
-import { githubInstallForId } from "@/server/installs";
+import { deliverRichardWake, type RichardBrief, type WakeDelivery } from "@/server/wake";
 
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -18,39 +17,10 @@ export function verifyGithubSignature(raw: string, signature: string | null): bo
   return safeEqual(signature, `sha256=${digest}`);
 }
 
-async function ownerUserId(): Promise<string | null> {
-  const configured = process.env.GITHUB_FLEETGLASS_USER_ID?.trim();
-  if (configured) return configured;
-  const email = (process.env.OWNER_EMAIL || process.env.GITHUB_OWNER_EMAIL || "").trim().toLowerCase();
-  if (!email) return null;
-  const res = await pool.query<{ id: string }>("SELECT id FROM users WHERE lower(email) = $1", [email]);
-  return res.rows[0]?.id ?? null;
-}
-
-async function notifyChief(body: Record<string, unknown>) {
-  const url = process.env.CHIEF_HANDOFF_URL?.trim();
-  if (!url) return;
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(2500),
-  }).catch(() => {});
-}
-
-async function handoff(
-  userId: string,
-  created: { deduped: boolean; task: { id: string; state: string } },
-  prompt: string,
-  repoUrl: string | null,
-) {
-  if (created.deduped || created.task.state !== "Holding") return created;
-  try {
-    await launchTask(userId, created.task.id, { prompt, repoUrl }, "system");
-  } catch {
-    // Plan refusals and Cursor errors are already stored on the task.
-  }
-  return created;
+function wakeHttp(delivery: WakeDelivery): { status: number; body: Record<string, unknown> } {
+  if (!delivery.ok) return { status: 502, body: { error: delivery.error } };
+  if ("reason" in delivery) return { status: 200, body: { ok: true, woke: false, reason: delivery.reason } };
+  return { status: 200, body: { ok: true, woke: delivery.woke, deduped: delivery.deduped } };
 }
 
 async function slackPermalink(token: string, channel: string, ts: string): Promise<string> {
@@ -88,7 +58,9 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
   }
 
   const decision = parseSlackEvent(payload);
-  if (decision.action !== "ingest") return { status: 200, body: { ok: true, ignored: decision.action === "ignore" ? decision.reason : "event" } };
+  if (decision.action !== "ingest") {
+    return { status: 200, body: { ok: true, ignored: decision.action === "ignore" ? decision.reason : "event" } };
+  }
 
   const mentionUser = process.env.SLACK_MENTION_USER_ID?.trim() || SLACK_MENTION_USER_DEFAULT;
   if (decision.user !== mentionUser) return { status: 200, body: { ok: true, ignored: "owner" } };
@@ -96,46 +68,41 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
   if (botUserId && decision.botUserIds.length > 0 && !decision.botUserIds.includes(botUserId)) {
     return { status: 200, body: { ok: true, ignored: "bot" } };
   }
-  const token = process.env.SLACK_BOT_TOKEN?.trim() || "";
-  if (!token) return { status: 200, body: { ok: true, ignored: "no_token" } };
-  const userId = await ownerUserId();
-  if (!userId) return { status: 200, body: { ok: true, ignored: "no_owner" } };
 
-  const permalink = await slackPermalink(token, decision.channel, decision.ts);
-  const created = await createTask(
-    userId,
-    {
-      trigger: "slack_bot_mention",
-      sourceRef: permalink,
-      owner: SLACK_DISPLAY_NAME,
-      payload: {
-        teamId: decision.teamId,
-        channelId: decision.channel,
-        channel: decision.channelName,
-        permalink,
-        text: decision.text,
-        user: decision.user,
-        slackTs: decision.ts,
-        messageTs: decision.ts,
-        eventId: decision.eventId ?? undefined,
-        apiAppId: decision.apiAppId,
-      },
-    },
-    "system",
-  );
-  await notifyChief({
-    type: "fleetglass.slack_mention",
-    taskId: created.task.id,
-    deduped: created.deduped,
+  const token = process.env.SLACK_BOT_TOKEN?.trim() || "";
+  const permalink = token
+    ? await slackPermalink(token, decision.channel, decision.ts)
+    : `https://slack.com/archives/${decision.channel}/p${decision.ts.replace(".", "")}`;
+
+  const intake = normalizeIntake({
     trigger: "slack_bot_mention",
     sourceRef: permalink,
-    slackUser: decision.user,
-    slackTs: decision.ts,
-    eventId: decision.eventId,
-    text: decision.text,
+    payload: {
+      teamId: decision.teamId,
+      channelId: decision.channel,
+      permalink,
+      text: decision.text,
+      user: decision.user,
+      slackTs: decision.ts,
+      eventId: decision.eventId ?? undefined,
+    },
   });
-  await handoff(userId, created, decision.text || "Slack mention", null);
-  return { status: 200, body: { ok: true, taskId: created.task.id, deduped: created.deduped } };
+  if (!intake.ok || !intake.value.idempotencyKey) return { status: 200, body: { ok: true, ignored: "empty" } };
+
+  const brief: RichardBrief = {
+    type: "fleetglass.wake",
+    source: "slack",
+    text: decision.text,
+    url: permalink,
+    author: decision.user,
+    ids: {
+      slack_ts: decision.ts,
+      event_id: decision.eventId,
+      team_id: decision.teamId,
+      channel_id: decision.channel,
+    },
+  };
+  return wakeHttp(await deliverRichardWake(brief, intake.value.idempotencyKey));
 }
 
 export async function receiveGithubWebhook(raw: string, signature: string | null, eventName: string | null) {
@@ -144,16 +111,21 @@ export async function receiveGithubWebhook(raw: string, signature: string | null
   if (eventName !== "issue_comment" && eventName !== "pull_request_review_comment") {
     return { status: 200, body: { ok: true, ignored: "event" } };
   }
-  const payload = JSON.parse(raw) as {
+
+  let payload: {
     action?: string;
-    installation?: { id?: number };
     repository?: { full_name?: string; html_url?: string };
     issue?: { number?: number; pull_request?: unknown };
     pull_request?: { number?: number; html_url?: string };
     comment?: { id?: number; body?: string; html_url?: string; user?: { login?: string } };
   };
+  try {
+    payload = JSON.parse(raw) as typeof payload;
+  } catch {
+    return { status: 400, body: { error: "invalid_json" } };
+  }
+
   if (payload.action && payload.action !== "created") return { status: 200, body: { ok: true, ignored: "action" } };
-  const installationId = payload.installation?.id ? String(payload.installation.id) : "";
   const comment = payload.comment;
   if (!comment?.id || !comment.body) return { status: 200, body: { ok: true, ignored: "empty" } };
   if (eventName === "issue_comment" && !payload.issue?.pull_request && !payload.pull_request) {
@@ -162,36 +134,43 @@ export async function receiveGithubWebhook(raw: string, signature: string | null
 
   const repo = payload.repository?.full_name ?? "";
   if (!githubRepoInScope(repo)) return { status: 200, body: { ok: true, ignored: "repo" } };
-  const install = installationId ? await githubInstallForId(installationId) : null;
-  if (install && !install.enabled) return { status: 200, body: { ok: true, ignored: "disabled" } };
-  const userId = install?.userId ?? (await ownerUserId());
-  if (!userId) return { status: 200, body: { ok: true, ignored: "no_owner" } };
   const slug = process.env.GITHUB_APP_SLUG?.trim();
-  const targets = githubMentionTargets([...(install?.mentionTargets ?? []), ...(slug ? [slug] : [])]);
+  const targets = githubMentionTargets(slug ? [slug] : []);
   if (!githubMentioned(comment.body, targets)) return { status: 200, body: { ok: true, ignored: "mention" } };
 
-  const prNumber = payload.pull_request?.number ?? payload.issue?.number;
-  const prUrl = payload.pull_request?.html_url || (payload.repository?.full_name && prNumber
-    ? `https://github.com/${payload.repository.full_name}/pull/${prNumber}`
-    : comment.html_url || "");
-  const created = await createTask(
-    userId,
-    {
-      trigger: "github_pr_mention",
+  const prNumber = payload.pull_request?.number ?? payload.issue?.number ?? null;
+  const prUrl =
+    payload.pull_request?.html_url ||
+    (payload.repository?.full_name && prNumber
+      ? `https://github.com/${payload.repository.full_name}/pull/${prNumber}`
+      : comment.html_url || "");
+
+  const intake = normalizeIntake({
+    trigger: "github_pr_mention",
+    commentId: String(comment.id),
+    sourceRef: prUrl,
+    payload: {
+      repo,
+      prNumber: prNumber ?? undefined,
+      prUrl,
+      commentBody: comment.body,
+      commenter: comment.user?.login,
       commentId: String(comment.id),
-      sourceRef: prUrl,
-      payload: {
-        repo: payload.repository?.full_name,
-        prNumber,
-        prUrl,
-        commentBody: comment.body,
-        commenter: comment.user?.login,
-        mentionTargets: targets,
-        commentId: String(comment.id),
-      },
     },
-    "system",
-  );
-  await handoff(userId, created, comment.body, payload.repository?.html_url ?? null);
-  return { status: 200, body: { ok: true, taskId: created.task.id, deduped: created.deduped } };
+  });
+  if (!intake.ok || !intake.value.idempotencyKey) return { status: 200, body: { ok: true, ignored: "empty" } };
+
+  const brief: RichardBrief = {
+    type: "fleetglass.wake",
+    source: "github",
+    text: comment.body,
+    url: prUrl,
+    author: comment.user?.login ?? "",
+    ids: {
+      comment_id: String(comment.id),
+      repo,
+      pr_number: prNumber,
+    },
+  };
+  return wakeHttp(await deliverRichardWake(brief, intake.value.idempotencyKey));
 }

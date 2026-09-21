@@ -11,6 +11,7 @@
     "test:plan": "tsx scripts/plan-check.ts",
     "test:intake": "tsx scripts/intake-check.ts",
     "test:bots": "tsx scripts/bot-check.ts",
+    "test:wake": "tsx scripts/wake-check.ts",
     "test:rls": "tsx scripts/rls-check.ts"
   },
   "dependencies": {
