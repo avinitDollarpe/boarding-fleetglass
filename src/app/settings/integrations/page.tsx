@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { disconnectGithubInstall, disconnectSlackInstall, saveGithub, saveSlack } from "@/app/actions";
 import { Shell } from "@/components/app/shell";
 import { readGithub, readSlack } from "@/server/installs";
+import { GITHUB_MENTION_TARGETS, GITHUB_REPO_OWNERS, SLACK_ALIASES, SLACK_HANDLE } from "@/lib/bots";
 import { CHIEF_SLACK_USER_ID } from "@/lib/slack-event";
 import { appOrigin } from "@/server/oauth-state";
 import { readPlan } from "@/server/plan";
@@ -33,7 +34,7 @@ export default async function IntegrationsPage({
           </p>
           <h1 className="text-3xl font-semibold tracking-tight">Integrations</h1>
           <p className="text-sm text-muted-foreground">
-            Chief is the Slack app. It is not a Cursor bot. Per-tenant OAuth on this page replaces the hand-rolled api.slack.com app later. A Grok teammate named Fleetglass is optional and interim. This page is the source of truth.
+            Richard (@{SLACK_HANDLE}) is the Slack app. Point its Event Subscriptions request URL here when you are ready. OAuth on this page is the per-tenant path once Slack client secrets are set. A Grok teammate named Fleetglass is optional and interim.
           </p>
         </div>
 
@@ -42,7 +43,7 @@ export default async function IntegrationsPage({
             <div>
               <h2 className="text-lg font-medium">Slack</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Display name is Chief. Event Subscriptions use the request URL below. An app mention creates a task only when the Slack user is {CHIEF_SLACK_USER_ID}.
+                Display name is Richard, handle @{SLACK_HANDLE}. Aliases: {SLACK_ALIASES.join(", ")}. Channel scope * means every channel. An app mention creates a task only when the Slack user is {CHIEF_SLACK_USER_ID}.
               </p>
             </div>
             <span className="num text-sm text-muted-foreground">{slack.installed ? "Installed" : "Not installed"}</span>
@@ -76,17 +77,17 @@ export default async function IntegrationsPage({
             </label>
             <label className="flex flex-col gap-1 text-sm">
               Handle
-              <input name="handle" defaultValue={slack.handle} className="field" placeholder="Chief" />
+              <input name="handle" defaultValue={slack.handle} className="field" placeholder={SLACK_HANDLE} />
             </label>
             <label className="flex flex-col gap-1 text-sm">
               Aliases
-              <textarea name="aliases" defaultValue={slack.aliases.join("\n")} className="field" placeholder={"Chief\ngilfoyle"} />
+              <textarea name="aliases" defaultValue={slack.aliases.join("\n")} className="field" placeholder={SLACK_ALIASES.join("\n")} />
             </label>
             <label className="flex flex-col gap-1 text-sm">
               Channel allowlist
-              <textarea name="channelAllowlist" defaultValue={slack.channelAllowlist.join("\n")} className="field" placeholder={"C0123\neng-supervisor"} />
+              <textarea name="channelAllowlist" defaultValue={slack.channelAllowlist.join("\n")} className="field" placeholder="*" />
             </label>
-            <p className="text-xs text-muted-foreground">Leave the allowlist empty to accept every channel. One id or name per line.</p>
+            <p className="text-xs text-muted-foreground">* or an empty allowlist accepts every channel. One id or name per line.</p>
             <label className="flex min-h-11 items-center gap-3 text-sm">
               <input type="checkbox" name="enabled" defaultChecked={slack.enabled} className="size-4" />
               Enabled
@@ -99,10 +100,10 @@ export default async function IntegrationsPage({
             <p className="font-medium">Event Subscriptions request URL</p>
             <p className="num break-all">{origin}/api/slack/events</p>
             <ol className="list-decimal space-y-1 ps-4 text-muted-foreground">
-              <li>Set SLACK_SIGNING_SECRET from the Chief app credentials.</li>
+              <li>Set SLACK_SIGNING_SECRET from Richard&apos;s app credentials when you point the app. Live pointing is later.</li>
               <li>Set SLACK_BOT_TOKEN so permalinks resolve. Set SLACK_FLEETGLASS_USER_ID or SLACK_OWNER_EMAIL until OAuth is installed.</li>
               <li>Paste the request URL into Slack. Fleetglass returns the url_verification challenge after the signature checks out.</li>
-              <li>Subscribe to the bot event app_mention. Only {CHIEF_SLACK_USER_ID} is ingested.</li>
+              <li>Subscribe to the bot event app_mention. Only {CHIEF_SLACK_USER_ID} is ingested. Idempotency is the message slack_ts.</li>
             </ol>
           </div>
         </section>
@@ -112,7 +113,7 @@ export default async function IntegrationsPage({
             <div>
               <h2 className="text-lg font-medium">GitHub</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Install the Fleetglass GitHub App. A pull request comment becomes a task when it mentions a target below, or the app slug from GITHUB_APP_SLUG.
+                A pull request comment becomes a task when it mentions {GITHUB_MENTION_TARGETS.join(", ")} on a repo under {GITHUB_REPO_OWNERS.join(" or ")}. Idempotency is the comment id.
               </p>
             </div>
             <span className="num text-sm text-muted-foreground">{github.installed ? "Installed" : "Not installed"}</span>
@@ -136,9 +137,9 @@ export default async function IntegrationsPage({
           <form action={saveGithub} className="flex flex-col gap-3">
             <label className="flex flex-col gap-1 text-sm">
               Mention targets
-              <textarea name="mentionTargets" defaultValue={github.mentionTargets.join("\n")} className="field" placeholder={"fleetglass\nchakravarti"} />
+              <textarea name="mentionTargets" defaultValue={github.mentionTargets.join("\n")} className="field" placeholder={GITHUB_MENTION_TARGETS.join("\n")} />
             </label>
-            <p className="text-xs text-muted-foreground">GitHub logins, without @. The Cursor bot is not a default target.</p>
+            <p className="text-xs text-muted-foreground">GitHub logins, without @. avinitDollarpe, cursor, and cursoragent are always matched. Extra logins and GITHUB_APP_SLUG are added on top.</p>
             <label className="flex min-h-11 items-center gap-3 text-sm">
               <input type="checkbox" name="enabled" defaultChecked={github.enabled} className="size-4" />
               Enabled

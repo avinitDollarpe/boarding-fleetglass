@@ -1,3 +1,4 @@
+import { SLACK_DISPLAY_NAME, SLACK_HANDLE } from "@/lib/bots";
 import { readGithub, readSlack, saveGithubSettings, saveSlackSettings } from "@/server/installs";
 import { fleetResponse, readJson, requireBearer } from "@/server/http";
 
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
     return Response.json({
       slack,
       github,
-      note: "Fleetglass Slack bot and GitHub App. Mention targets are the handle, aliases, and GitHub logins configured here. @cursor is not built in.",
+      note: "Display name Richard, handle @richard. Slack aliases include @cursor, cursor bot, and cursoragent. Channel scope * means every channel. GitHub mentions avinitDollarpe, cursor, and cursoragent on DollarPe-Infra and avinitDollarpe repos. app_mention intake still accepts only U08C40K4FHN.",
     });
   } catch (error) {
     return fleetResponse(error);
@@ -29,8 +30,8 @@ export async function PUT(request: Request) {
     if (slack && typeof slack === "object" && !Array.isArray(slack)) {
       const row = slack as Record<string, unknown>;
       await saveSlackSettings(userId, {
-        displayName: typeof row.displayName === "string" ? row.displayName : "Chief",
-        handle: typeof row.handle === "string" ? row.handle : "Chief",
+        displayName: typeof row.displayName === "string" ? row.displayName : SLACK_DISPLAY_NAME,
+        handle: typeof row.handle === "string" ? row.handle : SLACK_HANDLE,
         aliases: names(row.aliases),
         channelAllowlist: names(row.channelAllowlist),
         enabled: row.enabled === true,

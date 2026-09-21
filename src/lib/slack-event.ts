@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
-/** Slack user who may mention the Chief app. Override with SLACK_MENTION_USER_ID. */
+/** Slack user who may mention Richard. Override with SLACK_MENTION_USER_ID. */
 export const CHIEF_SLACK_USER_ID = "U08C40K4FHN";
 
 export function allowedSlackMentioner(): string {
@@ -47,7 +47,7 @@ export type SlackDecision =
       eventId: string | null;
     };
 
-/** Decide what a verified Slack event should do. app_mention is kept only for the Chief mentioner. */
+/** Decide what a verified Slack event should do. app_mention is kept only for Richard's mentioner. */
 export function decideSlackEvent(payload: SlackEventBody, mentioner = allowedSlackMentioner()): SlackDecision {
   if (payload.type === "url_verification") {
     return payload.challenge ? { action: "challenge", challenge: payload.challenge } : { action: "ignore", reason: "challenge" };

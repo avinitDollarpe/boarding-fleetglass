@@ -66,12 +66,15 @@ export const tasks = pgTable("tasks", {
   workspaceId: uuid("workspace_id"),
   parentId: uuid("parent_id"),
   externalId: text("external_id"),
+  /** github_comment:{comment_id} or slack:{team}:{channel}:{slack_ts}. */
   idempotencyKey: text("idempotency_key"),
   name: text("name").notNull(),
   owner: text("owner").notNull().default(""),
   state: text("state").notNull(),
+  /** github_pr_mention | slack_bot_mention | chat_delegate. */
   trigger: text("trigger").notNull(),
   source: text("source").notNull(),
+  /** GitHub PR URL, or Slack permalink. */
   sourceRef: text("source_ref"),
   triggerPayload: jsonb("trigger_payload").$type<Record<string, unknown>>().notNull().default({}),
   prs: text("prs"),

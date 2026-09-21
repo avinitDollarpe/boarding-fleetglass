@@ -26,7 +26,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </div>
         <section className="card flex flex-col gap-3 p-4">
           <h2 className="text-lg font-medium">Ingest key</h2>
-          <p className="text-sm text-muted-foreground">Gilfoyle and Chief call the API with this bearer token. It is shown once.</p>
+          <p className="text-sm text-muted-foreground">Gilfoyle calls the API with this bearer token. It is shown once.</p>
           {query.key ? <p className="num break-all rounded-[8px] bg-muted p-3 text-sm">{query.key}</p> : null}
           <form action={mintKey} className="flex flex-wrap items-end gap-3">
             <label className="flex min-w-48 flex-1 flex-col gap-1 text-sm">
@@ -59,7 +59,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <section className="card flex flex-col gap-3 p-4">
           <h2 className="text-lg font-medium">Integrations</h2>
           <p className="text-sm text-muted-foreground">
-            Chief is the Slack app. The Event Subscriptions request URL, handle, and GitHub mention targets live under Integrations.
+            Richard (@richard), the Slack request URL, and GitHub mention targets live under Integrations.
           </p>
           <Link href="/settings/integrations" className="press btn btn-quiet w-fit">
             Open integrations

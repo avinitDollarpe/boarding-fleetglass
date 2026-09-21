@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import { channelAllowed, githubMentioned } from "@/lib/bots";
+import { channelAllowed, githubMentioned, githubMentionTargets, githubRepoInScope, SLACK_DISPLAY_NAME } from "@/lib/bots";
 import { decideSlackEvent, verifySlackSignature, type SlackEventBody } from "@/lib/slack-event";
 import { pool } from "@/db/client";
 import { createTask, launchTask } from "@/server/fleet";
@@ -18,13 +18,24 @@ export function verifyGithubSignature(raw: string, signature: string | null): bo
   return safeEqual(signature, `sha256=${digest}`);
 }
 
-async function fleetUserForEnvSlack(): Promise<string | null> {
-  const configured = process.env.SLACK_FLEETGLASS_USER_ID?.trim();
+async function fleetUserByEnv(idEnv: string, emailEnv: string): Promise<string | null> {
+  const configured = process.env[idEnv]?.trim();
   if (configured) return configured;
-  const email = process.env.SLACK_OWNER_EMAIL?.trim().toLowerCase();
+  const email = process.env[emailEnv]?.trim().toLowerCase();
   if (!email) return null;
   const res = await pool.query<{ id: string }>("SELECT id FROM users WHERE lower(email) = $1", [email]);
   return res.rows[0]?.id ?? null;
+}
+
+async function fleetUserForEnvSlack(): Promise<string | null> {
+  return fleetUserByEnv("SLACK_FLEETGLASS_USER_ID", "SLACK_OWNER_EMAIL");
+}
+
+async function fleetUserForEnvGithub(): Promise<string | null> {
+  return (
+    (await fleetUserByEnv("GITHUB_FLEETGLASS_USER_ID", "GITHUB_OWNER_EMAIL")) ??
+    fleetUserByEnv("SLACK_FLEETGLASS_USER_ID", "SLACK_OWNER_EMAIL")
+  );
 }
 
 async function notifyChief(body: Record<string, unknown>) {
@@ -98,8 +109,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
     {
       trigger: "slack_bot_mention",
       sourceRef: permalink,
-      owner: install?.displayName || "Chief",
-      idempotencyKey: decision.eventId ? `slack_event:${decision.eventId}` : undefined,
+      owner: install?.displayName || SLACK_DISPLAY_NAME,
       payload: {
         teamId: decision.teamId,
         channelId: decision.channel,
@@ -146,15 +156,19 @@ export async function receiveGithubWebhook(raw: string, signature: string | null
   if (payload.action && payload.action !== "created") return { status: 200, body: { ok: true, ignored: "action" } };
   const installationId = payload.installation?.id ? String(payload.installation.id) : "";
   const comment = payload.comment;
-  if (!installationId || !comment?.id || !comment.body) return { status: 200, body: { ok: true, ignored: "empty" } };
+  if (!comment?.id || !comment.body) return { status: 200, body: { ok: true, ignored: "empty" } };
   if (eventName === "issue_comment" && !payload.issue?.pull_request && !payload.pull_request) {
     return { status: 200, body: { ok: true, ignored: "not_pr" } };
   }
 
-  const install = await githubInstallForId(installationId);
-  if (!install || !install.enabled) return { status: 200, body: { ok: true, ignored: "disabled" } };
+  const repo = payload.repository?.full_name ?? "";
+  if (!githubRepoInScope(repo)) return { status: 200, body: { ok: true, ignored: "repo" } };
+  const install = installationId ? await githubInstallForId(installationId) : null;
+  if (install && !install.enabled) return { status: 200, body: { ok: true, ignored: "disabled" } };
+  const userId = install?.userId ?? (await fleetUserForEnvGithub());
+  if (!userId) return { status: 200, body: { ok: true, ignored: "no_owner" } };
   const slug = process.env.GITHUB_APP_SLUG?.trim();
-  const targets = [...install.mentionTargets, ...(slug ? [slug] : [])];
+  const targets = githubMentionTargets([...(install?.mentionTargets ?? []), ...(slug ? [slug] : [])]);
   if (!githubMentioned(comment.body, targets)) return { status: 200, body: { ok: true, ignored: "mention" } };
 
   const prNumber = payload.pull_request?.number ?? payload.issue?.number;
@@ -162,7 +176,7 @@ export async function receiveGithubWebhook(raw: string, signature: string | null
     ? `https://github.com/${payload.repository.full_name}/pull/${prNumber}`
     : comment.html_url || "");
   const created = await createTask(
-    install.userId,
+    userId,
     {
       trigger: "github_pr_mention",
       commentId: String(comment.id),
@@ -179,6 +193,6 @@ export async function receiveGithubWebhook(raw: string, signature: string | null
     },
     "system",
   );
-  await handoff(install.userId, created, comment.body, payload.repository?.html_url ?? null);
+  await handoff(userId, created, comment.body, payload.repository?.html_url ?? null);
   return { status: 200, body: { ok: true, taskId: created.task.id, deduped: created.deduped } };
 }

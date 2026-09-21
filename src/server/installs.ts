@@ -1,7 +1,15 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { pool, withUser } from "@/db/client";
 import { integrations } from "@/db/schema";
-import { cleanHandle, cleanNameList } from "@/lib/bots";
+import {
+  cleanHandle,
+  cleanNameList,
+  GITHUB_MENTION_TARGETS,
+  SLACK_ALIASES,
+  SLACK_CHANNEL_SCOPE,
+  SLACK_DISPLAY_NAME,
+  SLACK_HANDLE,
+} from "@/lib/bots";
 import { decryptSecret, encryptSecret, hashSecret, hint } from "@/lib/crypto";
 
 export type SlackPublic = {
@@ -49,10 +57,10 @@ function slackPublic(row: SlackRow | undefined): SlackPublic {
   const meta = asMeta(row?.metadata);
   const teamName = typeof meta.teamName === "string" ? meta.teamName : null;
   return {
-    displayName: row?.displayName || "Chief",
-    handle: row?.handle || "Chief",
-    aliases: row?.aliases ?? [],
-    channelAllowlist: row?.channelAllowlist ?? [],
+    displayName: row?.displayName || SLACK_DISPLAY_NAME,
+    handle: row?.handle || SLACK_HANDLE,
+    aliases: row?.aliases?.length ? row.aliases : [...SLACK_ALIASES],
+    channelAllowlist: row?.channelAllowlist?.length ? row.channelAllowlist : [SLACK_CHANNEL_SCOPE],
     enabled: row?.enabled ?? false,
     installed: Boolean(row?.secretEncrypted && row.externalTeamId),
     teamId: row?.externalTeamId ?? null,
@@ -67,7 +75,7 @@ function githubPublic(row: {
   externalId: string | null;
 } | undefined): GithubPublic {
   return {
-    mentionTargets: row?.mentionTargets ?? [],
+    mentionTargets: row?.mentionTargets?.length ? row.mentionTargets : [...GITHUB_MENTION_TARGETS],
     enabled: row?.enabled ?? false,
     installed: Boolean(row?.externalId),
     installationId: row?.externalId ?? null,
@@ -113,7 +121,7 @@ export async function saveSlackSettings(
   userId: string,
   input: { displayName: string; handle: string; aliases: string[]; channelAllowlist: string[]; enabled: boolean },
 ) {
-  const displayName = input.displayName.trim().slice(0, 80) || "Chief";
+  const displayName = input.displayName.trim().slice(0, 80) || SLACK_DISPLAY_NAME;
   const handle = cleanHandle(input.handle);
   const aliases = cleanNameList(input.aliases);
   const channelAllowlist = cleanNameList(input.channelAllowlist);
@@ -208,9 +216,11 @@ export async function storeSlackInstall(
       externalTeamId: install.teamId,
       externalId: install.botUserId,
       enabled: true,
-      displayName: "Chief",
-      handle: "Chief",
-      name: "Chief",
+      displayName: SLACK_DISPLAY_NAME,
+      handle: SLACK_HANDLE,
+      name: SLACK_DISPLAY_NAME,
+      aliases: [...SLACK_ALIASES],
+      channelAllowlist: [SLACK_CHANNEL_SCOPE],
       metadata: { teamName: install.teamName },
     });
   });

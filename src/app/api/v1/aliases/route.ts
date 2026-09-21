@@ -14,7 +14,7 @@ export async function GET(request: Request) {
       channelAllowlist: slack.channelAllowlist,
       enabled: slack.enabled,
       installed: slack.installed,
-      note: "Chief is the Slack app. Match its handle and these aliases. app_mention intake accepts only the configured mentioner, default U08C40K4FHN.",
+      note: "Richard (@richard). Aliases include @cursoragent, cursoragent, @cursor, cursor bot, and @Cursor. Channel scope * is every channel. app_mention intake accepts only U08C40K4FHN.",
     });
   } catch (error) {
     return fleetResponse(error);

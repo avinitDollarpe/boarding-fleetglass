@@ -46,7 +46,8 @@ const withEvent = normalizeIntake({
 });
 assert.equal(withEvent.ok, true);
 if (!withEvent.ok) process.exit(1);
-assert.equal(withEvent.value.idempotencyKey, "slack_event:Ev123");
+assert.equal(withEvent.value.idempotencyKey, "slack:T:C:1.2");
+assert.equal(withEvent.value.payload.eventId, "Ev123");
 assert.equal(slackTsOnly.value.sourceRef, "https://example.slack.com/archives/C1/p171");
 assert.equal(
   decideIntake(slack.value, { byKey: null, byPr: { id: "other", parentId: null } }).action,

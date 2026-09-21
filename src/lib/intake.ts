@@ -92,14 +92,12 @@ export function normalizeIntake(
   const sourceRef = normalizeSourceRef(raw, ref);
 
   let idempotencyKey = input.idempotencyKey?.trim() || null;
+  // GitHub key is the comment id. Slack key is the message timestamp (slack_ts), not event_id.
   if (!idempotencyKey && raw === "github_pr_mention" && payload.commentId) {
     idempotencyKey = `github_comment:${payload.commentId}`;
   }
   const slackTs = payload.slackTs || payload.messageTs || null;
   if (slackTs && !payload.slackTs) payload.slackTs = slackTs;
-  if (!idempotencyKey && raw === "slack_bot_mention" && payload.eventId) {
-    idempotencyKey = `slack_event:${payload.eventId}`;
-  }
   if (!idempotencyKey && raw === "slack_bot_mention" && slackTs) {
     idempotencyKey =
       payload.teamId && payload.channelId
