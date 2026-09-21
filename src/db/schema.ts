@@ -165,6 +165,15 @@ export const integrations = pgTable("integrations", {
   enabled: boolean("enabled").notNull().default(false),
   externalTeamId: text("external_team_id"),
   externalId: text("external_id"),
+  /** Slack app id (A…). With external_team_id, routes POST /api/slack/events. */
+  apiAppId: text("api_app_id"),
+  /** AES-GCM signing secret for this bot. Not a deploy env var. */
+  signingSecretEncrypted: text("signing_secret_encrypted").notNull().default(""),
+  signingSecretHint: text("signing_secret_hint").notNull().default(""),
+  /** Slack user ids allowed to mention this bot. */
+  ownerSlackUserIds: text("owner_slack_user_ids").array().notNull().default([]),
+  /** Emails allowed to mention this bot, matched via users.info. */
+  ownerEmails: text("owner_emails").array().notNull().default([]),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

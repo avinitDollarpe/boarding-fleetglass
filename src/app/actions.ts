@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/auth";
-import { createTask, ingestUsage, launchTask, transitionTask } from "@/server/fleet";
+import { FleetError, createTask, ingestUsage, launchTask, transitionTask } from "@/server/fleet";
 import { createIngestKey, revokeIngestKey } from "@/server/keys";
 import { disconnectGithub, disconnectSlack, saveGithubSettings, saveSlackSettings } from "@/server/installs";
 import { linkCursorKey } from "@/server/plan";
@@ -18,7 +18,8 @@ async function userId() {
 export async function requestMagicLink(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) redirect("/login?error=email");
-  await signIn("nodemailer", { email, redirectTo: "/board" });
+  await signIn("nodemailer", { email, redirect: false, redirectTo: "/board" });
+  redirect("/login/check-email");
 }
 
 export async function linkCursor(formData: FormData) {
@@ -55,6 +56,24 @@ export async function loadSample() {
   await loadSampleFleet(id);
   revalidatePath("/board");
   revalidatePath("/activity");
+}
+
+export async function moveTask(taskId: string, state: string) {
+  const id = await userId();
+  try {
+    const task = await transitionTask(id, taskId, state, null, "dashboard");
+    revalidatePath("/board");
+    revalidatePath(`/tasks/${taskId}`);
+    return { ok: true as const, state: task.state };
+  } catch (error) {
+    revalidatePath("/board");
+    revalidatePath(`/tasks/${taskId}`);
+    if (error instanceof FleetError) {
+      const landed = typeof error.extra?.state === "string" ? error.extra.state : null;
+      return { ok: false as const, message: error.message, state: landed };
+    }
+    throw error;
+  }
 }
 
 export async function changeState(formData: FormData) {
@@ -126,14 +145,23 @@ function lines(value: FormDataEntryValue | null): string[] {
 
 export async function saveSlack(formData: FormData) {
   const id = await userId();
-  await saveSlackSettings(id, {
+  const saved = await saveSlackSettings(id, {
+    id: String(formData.get("id") ?? "") || null,
     displayName: String(formData.get("displayName") ?? ""),
     handle: String(formData.get("handle") ?? ""),
     aliases: lines(formData.get("aliases")),
     channelAllowlist: lines(formData.get("channelAllowlist")),
     enabled: formData.get("enabled") === "on",
+    signingSecret: String(formData.get("signingSecret") ?? ""),
+    botToken: String(formData.get("botToken") ?? ""),
+    teamId: String(formData.get("teamId") ?? ""),
+    apiAppId: String(formData.get("apiAppId") ?? ""),
+    botUserId: String(formData.get("botUserId") ?? ""),
+    ownerSlackUserIds: lines(formData.get("ownerSlackUserIds")),
+    ownerEmails: lines(formData.get("ownerEmails")),
   });
   revalidatePath("/settings/integrations");
+  if (!saved.ok) redirect(`/settings/integrations?slack=${saved.error}`);
 }
 
 export async function saveGithub(formData: FormData) {
@@ -145,9 +173,9 @@ export async function saveGithub(formData: FormData) {
   revalidatePath("/settings/integrations");
 }
 
-export async function disconnectSlackInstall() {
+export async function disconnectSlackInstall(formData: FormData) {
   const id = await userId();
-  await disconnectSlack(id);
+  await disconnectSlack(id, String(formData.get("id") ?? ""));
   revalidatePath("/settings/integrations");
 }
 

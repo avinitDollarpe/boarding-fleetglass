@@ -15,7 +15,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "database" },
   pages: {
     signIn: "/login",
-    verifyRequest: "/login?check=1",
+    verifyRequest: "/login/check-email",
   },
   providers: [
     Nodemailer({

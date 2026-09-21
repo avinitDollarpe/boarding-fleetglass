@@ -3,9 +3,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { disconnectGithubInstall, disconnectSlackInstall, saveGithub, saveSlack } from "@/app/actions";
 import { Shell } from "@/components/app/shell";
-import { readGithub, readSlack } from "@/server/installs";
+import { blankSlack, listSlack, readGithub, type SlackPublic } from "@/server/installs";
 import { GITHUB_MENTION_TARGETS, GITHUB_REPO_OWNERS, SLACK_ALIASES, SLACK_HANDLE } from "@/lib/bots";
-import { CHIEF_SLACK_USER_ID } from "@/lib/slack-event";
 import { appOrigin } from "@/server/oauth-state";
 import { readPlan } from "@/server/plan";
 
@@ -19,9 +18,9 @@ export default async function IntegrationsPage({
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
   const query = await searchParams;
-  const [plan, slack, github] = await Promise.all([
+  const [plan, slackBots, github] = await Promise.all([
     readPlan(session.user.id),
-    readSlack(session.user.id),
+    listSlack(session.user.id),
     readGithub(session.user.id),
   ]);
   const origin = appOrigin();
@@ -34,78 +33,36 @@ export default async function IntegrationsPage({
           </p>
           <h1 className="text-3xl font-semibold tracking-tight">Integrations</h1>
           <p className="text-sm text-muted-foreground">
-            Richard (@{SLACK_HANDLE}) is the Slack app. Point its Event Subscriptions request URL here when you are ready. OAuth on this page is the per-tenant path once Slack client secrets are set. A Grok teammate named Fleetglass is optional and interim.
+            Each Slack bot you own is a connector on this account. The signing secret, bot token, and who may mention it are stored encrypted here, not in deploy env.
           </p>
         </div>
 
-        <section className="card flex flex-col gap-4 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-medium">Slack</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Defaults are display name Richard and handle @{SLACK_HANDLE}. Built-in aliases: {SLACK_ALIASES.join(", ")}. Channel scope * means every channel. Fields below are this account’s saved settings. An app mention creates a task only when the Slack user is {CHIEF_SLACK_USER_ID}.
-              </p>
-            </div>
-            <span className="num text-sm text-muted-foreground">{slack.installed ? "Installed" : "Not installed"}</span>
-          </div>
-          {query.slack === "unconfigured" ? (
-            <p className="text-sm">Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET before installing.</p>
-          ) : null}
-          {query.slack === "installed" ? <p className="text-sm">Slack workspace connected.</p> : null}
-          {query.slack === "error" ? <p className="text-sm">Slack install did not finish.</p> : null}
-          {slack.installed ? (
-            <p className="text-sm">
-              Workspace {slack.teamName || slack.teamId}. Bot user {slack.botUserId}.
+        <section className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <h2 className="text-lg font-medium">Slack</h2>
+            <p className="text-sm text-muted-foreground">
+              Paste the credentials from the Slack app you own. Fleetglass verifies events with that bot’s signing secret and writes the task to your account. Another user can connect a different bot to the same request URL.
             </p>
-          ) : null}
-          <div className="flex flex-wrap gap-3">
-            <a href="/api/slack/install" className="press btn btn-primary">
-              {slack.installed ? "Reconnect Slack" : "Install Slack app"}
-            </a>
-            {slack.installed ? (
-              <form action={disconnectSlackInstall}>
-                <button type="submit" className="press btn btn-quiet">
-                  Disconnect
-                </button>
-              </form>
-            ) : null}
           </div>
-          <form action={saveSlack} className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-sm">
-              Display name
-              <input name="displayName" defaultValue={slack.displayName} className="field" maxLength={80} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              Handle
-              <input name="handle" defaultValue={slack.handle} className="field" placeholder={SLACK_HANDLE} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              Aliases
-              <textarea name="aliases" defaultValue={slack.aliases.join("\n")} className="field" placeholder={SLACK_ALIASES.join("\n")} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              Channel allowlist
-              <textarea name="channelAllowlist" defaultValue={slack.channelAllowlist.join("\n")} className="field" placeholder="*" />
-            </label>
-            <p className="text-xs text-muted-foreground">* or an empty allowlist accepts every channel. One id or name per line.</p>
-            <label className="flex min-h-11 items-center gap-3 text-sm">
-              <input type="checkbox" name="enabled" defaultChecked={slack.enabled} className="size-4" />
-              Enabled
-            </label>
-            <button type="submit" className="press btn btn-quiet w-fit">
-              Save Slack bot
-            </button>
-          </form>
+          {query.slack === "unconfigured" ? <p className="text-sm">Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET before using Add to Slack.</p> : null}
+          {query.slack === "installed" ? <p className="text-sm">Slack workspace connected. Save the signing secret and the owner allowlist on that bot.</p> : null}
+          {query.slack === "error" ? <p className="text-sm">Slack install did not finish.</p> : null}
+          {query.slack === "incomplete" ? <p className="text-sm">Saved, but left disabled. A live bot needs a signing secret, bot token, team id, and at least one owner Slack user id or email.</p> : null}
+          {query.slack === "duplicate" ? <p className="text-sm">This account already has a bot for that team and app id.</p> : null}
+          {query.slack === "missing" ? <p className="text-sm">That Slack bot is no longer on this account.</p> : null}
           <div className="flex flex-col gap-2 rounded-[8px] border border-border p-3 text-sm">
             <p className="font-medium">Event Subscriptions request URL</p>
             <p className="num break-all">{origin}/api/slack/events</p>
-            <ol className="list-decimal space-y-1 ps-4 text-muted-foreground">
-              <li>Set SLACK_SIGNING_SECRET from Richard&apos;s app credentials when you point the app. Live pointing is later.</li>
-              <li>Set SLACK_BOT_TOKEN so permalinks resolve. Set SLACK_FLEETGLASS_USER_ID or SLACK_OWNER_EMAIL until OAuth is installed.</li>
-              <li>Paste the request URL into Slack. Fleetglass returns the url_verification challenge after the signature checks out.</li>
-              <li>Subscribe to the bot event app_mention. Only {CHIEF_SLACK_USER_ID} is ingested. Idempotency is the message slack_ts.</li>
-            </ol>
+            <p className="text-muted-foreground">Use this URL on every bot. Slack’s url_verification challenge is checked against the signing secret saved on the matching connector.</p>
           </div>
+          {slackBots.map((bot) => (
+            <SlackBotForm key={bot.id} bot={bot} />
+          ))}
+          <SlackBotForm bot={blankSlack()} />
+          <a href="/api/slack/install" className="press btn btn-quiet w-fit">
+            Add to Slack
+          </a>
+          <p className="text-xs text-muted-foreground">Add to Slack is optional. It needs the platform OAuth client and still stores the bot token on your account. The signing secret stays a field on the connector.</p>
         </section>
 
         <section className="card flex flex-col gap-4 p-4">
@@ -152,5 +109,81 @@ export default async function IntegrationsPage({
         </section>
       </div>
     </Shell>
+  );
+}
+
+function SlackBotForm({ bot }: { bot: SlackPublic }) {
+  return (
+    <form action={saveSlack} className="card flex flex-col gap-3 p-4">
+      {bot.id ? <input type="hidden" name="id" value={bot.id} /> : null}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-base font-medium">{bot.id ? bot.displayName : "Add a Slack bot"}</h3>
+        <span className="num text-sm text-muted-foreground">
+          {bot.installed ? "Token saved" : "No token"}
+          {bot.hasSigningSecret ? " · secret saved" : ""}
+          {bot.enabled ? " · enabled" : " · disabled"}
+        </span>
+      </div>
+      <label className="flex flex-col gap-1 text-sm">
+        Display name
+        <input name="displayName" defaultValue={bot.displayName} className="field" maxLength={80} />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        Handle
+        <input name="handle" defaultValue={bot.handle} className="field" placeholder={SLACK_HANDLE} />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        Signing secret
+        <input name="signingSecret" type="password" autoComplete="new-password" className="field" placeholder={bot.signingHint ? `Saved ···${bot.signingHint}` : "From Basic Information"} />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        Bot token
+        <input name="botToken" type="password" autoComplete="new-password" className="field" placeholder={bot.tokenHint ? `Saved ···${bot.tokenHint}` : "xoxb-…"} />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        Team id
+        <input name="teamId" defaultValue={bot.teamId ?? ""} className="field" placeholder="T0123456789" />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        App id
+        <input name="apiAppId" defaultValue={bot.apiAppId ?? ""} className="field" placeholder="A0123456789" />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        Bot user id
+        <input name="botUserId" defaultValue={bot.botUserId ?? ""} className="field" placeholder="U0123456789" />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        Owner Slack user ids
+        <textarea name="ownerSlackUserIds" defaultValue={bot.ownerSlackUserIds.join("\n")} className="field" placeholder="U08C40K4FHN" />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        Owner emails
+        <textarea name="ownerEmails" defaultValue={bot.ownerEmails.join("\n")} className="field" placeholder="you@company.com" />
+      </label>
+      <p className="text-xs text-muted-foreground">Only these Slack users can trigger the bot. Leave a secret blank to keep the saved value.</p>
+      <label className="flex flex-col gap-1 text-sm">
+        Aliases
+        <textarea name="aliases" defaultValue={bot.aliases.join("\n")} className="field" placeholder={SLACK_ALIASES.join("\n")} />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        Channel allowlist
+        <textarea name="channelAllowlist" defaultValue={bot.channelAllowlist.join("\n")} className="field" placeholder="*" />
+      </label>
+      <p className="text-xs text-muted-foreground">* or an empty allowlist accepts every channel.</p>
+      <label className="flex min-h-11 items-center gap-3 text-sm">
+        <input type="checkbox" name="enabled" defaultChecked={bot.enabled} className="size-4" />
+        Enabled
+      </label>
+      <div className="flex flex-wrap gap-3">
+        <button type="submit" className="press btn btn-primary">
+          {bot.id ? "Save Slack bot" : "Add Slack bot"}
+        </button>
+        {bot.id ? (
+          <button type="submit" formAction={disconnectSlackInstall} className="press btn btn-quiet">
+            Disconnect
+          </button>
+        ) : null}
+      </div>
+    </form>
   );
 }

@@ -1,9 +1,9 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import { channelAllowed, githubMentioned, githubMentionTargets, githubRepoInScope, SLACK_DISPLAY_NAME } from "@/lib/bots";
-import { decideSlackEvent, verifySlackSignature, type SlackEventBody } from "@/lib/slack-event";
+import { channelAllowed, githubMentioned, githubMentionTargets, githubRepoInScope } from "@/lib/bots";
+import { ownerMayTrigger, parseSlackEvent, pickSlackConnections, slackRouteHint, verifySlackSignature, type SlackEventBody } from "@/lib/slack-event";
 import { pool } from "@/db/client";
 import { createTask, launchTask } from "@/server/fleet";
-import { githubInstallForId, slackInstallForTeam } from "@/server/installs";
+import { githubInstallForId, listSlackSigningConnections, slackConnectionsForTeam, type SlackSecretConnection } from "@/server/installs";
 
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -27,15 +27,8 @@ async function fleetUserByEnv(idEnv: string, emailEnv: string): Promise<string |
   return res.rows[0]?.id ?? null;
 }
 
-async function fleetUserForEnvSlack(): Promise<string | null> {
-  return fleetUserByEnv("SLACK_FLEETGLASS_USER_ID", "SLACK_OWNER_EMAIL");
-}
-
 async function fleetUserForEnvGithub(): Promise<string | null> {
-  return (
-    (await fleetUserByEnv("GITHUB_FLEETGLASS_USER_ID", "GITHUB_OWNER_EMAIL")) ??
-    fleetUserByEnv("SLACK_FLEETGLASS_USER_ID", "SLACK_OWNER_EMAIL")
-  );
+  return fleetUserByEnv("GITHUB_FLEETGLASS_USER_ID", "GITHUB_OWNER_EMAIL");
 }
 
 async function notifyChief(body: Record<string, unknown>) {
@@ -80,36 +73,68 @@ async function slackPermalink(token: string, channel: string, ts: string): Promi
   }
 }
 
+function matchingSecret(connections: SlackSecretConnection[], raw: string, timestamp: string | null, signature: string | null) {
+  return connections.find((conn) => verifySlackSignature(raw, timestamp, signature, conn.signingSecret)) ?? null;
+}
+
+async function slackProfileEmail(token: string, slackUserId: string): Promise<string | null> {
+  if (!token) return null;
+  try {
+    const response = await fetch(`https://slack.com/api/users.info?user=${encodeURIComponent(slackUserId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(4000),
+    });
+    const body = (await response.json()) as { ok?: boolean; user?: { profile?: { email?: string } } };
+    return body.ok && body.user?.profile?.email ? body.user.profile.email : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function receiveSlackEvent(raw: string, timestamp: string | null, signature: string | null) {
-  if (!process.env.SLACK_SIGNING_SECRET) return { status: 503, body: { error: "slack_unconfigured" } };
-  if (!verifySlackSignature(raw, timestamp, signature)) return { status: 401, body: { error: "invalid_signature" } };
   let payload: SlackEventBody;
   try {
     payload = JSON.parse(raw) as SlackEventBody;
   } catch {
     return { status: 400, body: { error: "invalid_json" } };
   }
-  const decision = decideSlackEvent(payload);
-  if (decision.action === "challenge") return { status: 200, body: { challenge: decision.challenge } };
-  if (decision.action === "ignore") return { status: 200, body: { ok: true, ignored: decision.reason } };
 
-  const install = await slackInstallForTeam(decision.teamId);
-  if (install && !install.enabled) return { status: 200, body: { ok: true, ignored: "disabled" } };
-  if (install && !channelAllowed(install.channelAllowlist, decision.channel, decision.channelName)) {
+  if (payload.type === "url_verification") {
+    const connections = await listSlackSigningConnections();
+    if (connections.length === 0) return { status: 503, body: { error: "slack_unconfigured" } };
+    if (!matchingSecret(connections, raw, timestamp, signature)) return { status: 401, body: { error: "invalid_signature" } };
+    return payload.challenge
+      ? { status: 200, body: { challenge: payload.challenge } }
+      : { status: 200, body: { ok: true, ignored: "challenge" } };
+  }
+
+  const hint = slackRouteHint(payload);
+  const connections = hint ? pickSlackConnections(await slackConnectionsForTeam(hint.teamId), hint) : await listSlackSigningConnections();
+  if (connections.length === 0) return { status: 200, body: { ok: true, ignored: "no_connection" } };
+  const install = matchingSecret(connections, raw, timestamp, signature);
+  if (!install) return { status: 401, body: { error: "invalid_signature" } };
+
+  const decision = parseSlackEvent(payload);
+  if (decision.action !== "ingest") return { status: 200, body: { ok: true, ignored: decision.action === "ignore" ? decision.reason : "event" } };
+  if (!install.enabled) return { status: 200, body: { ok: true, ignored: "disabled" } };
+  if (!channelAllowed(install.channelAllowlist, decision.channel, decision.channelName)) {
     return { status: 200, body: { ok: true, ignored: "channel" } };
   }
-  const userId = install?.userId ?? (await fleetUserForEnvSlack());
-  const token = install?.token || process.env.SLACK_BOT_TOKEN || "";
-  if (!userId) return { status: 200, body: { ok: true, ignored: "no_owner" } };
-  if (!token) return { status: 200, body: { ok: true, ignored: "no_token" } };
+  const email = install.ownerSlackUserIds.includes(decision.user)
+    ? null
+    : await slackProfileEmail(install.botToken, decision.user);
+  if (!ownerMayTrigger(decision.user, email, { userIds: install.ownerSlackUserIds, emails: install.ownerEmails })) {
+    return { status: 200, body: { ok: true, ignored: "owner" } };
+  }
+  if (!install.botToken) return { status: 200, body: { ok: true, ignored: "no_token" } };
 
-  const permalink = await slackPermalink(token, decision.channel, decision.ts);
+  const permalink = await slackPermalink(install.botToken, decision.channel, decision.ts);
   const created = await createTask(
-    userId,
+    install.userId,
     {
       trigger: "slack_bot_mention",
       sourceRef: permalink,
-      owner: install?.displayName || SLACK_DISPLAY_NAME,
+      owner: install.displayName,
       payload: {
         teamId: decision.teamId,
         channelId: decision.channel,
@@ -120,6 +145,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
         slackTs: decision.ts,
         messageTs: decision.ts,
         eventId: decision.eventId ?? undefined,
+        apiAppId: decision.apiAppId,
       },
     },
     "system",
@@ -135,7 +161,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
     eventId: decision.eventId,
     text: decision.text,
   });
-  await handoff(userId, created, decision.text || "Slack mention", null);
+  await handoff(install.userId, created, decision.text || "Slack mention", null);
   return { status: 200, body: { ok: true, taskId: created.task.id, deduped: created.deduped } };
 }
 

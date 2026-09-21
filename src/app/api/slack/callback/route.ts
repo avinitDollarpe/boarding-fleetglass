@@ -27,6 +27,7 @@ export async function GET(request: Request) {
     ok?: boolean;
     access_token?: string;
     bot_user_id?: string;
+    app_id?: string;
     team?: { id?: string; name?: string };
   };
   if (!payload.ok || !payload.access_token || !payload.team?.id || !payload.bot_user_id) {
@@ -38,6 +39,7 @@ export async function GET(request: Request) {
     teamId: payload.team.id,
     teamName: payload.team.name || payload.team.id,
     botUserId: payload.bot_user_id,
+    apiAppId: payload.app_id,
   });
   back.searchParams.set("slack", "installed");
   return Response.redirect(back);

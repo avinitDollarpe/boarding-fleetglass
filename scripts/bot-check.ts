@@ -9,7 +9,7 @@ import {
   SLACK_ALIASES,
   SLACK_HANDLE,
 } from "../src/lib/bots";
-import { CHIEF_SLACK_USER_ID, decideSlackEvent, verifySlackSignature } from "../src/lib/slack-event";
+import { ownerMayTrigger, parseSlackEvent, pickSlackConnections, verifySlackSignature } from "../src/lib/slack-event";
 
 assert.equal(slackMentioned("hey @Fleetglass check this", { handle: "Fleetglass", aliases: [] }), true);
 assert.equal(slackMentioned("<@U123> please", { handle: "Fleetglass", aliases: [], botUserId: "U123" }), true);
@@ -39,21 +39,31 @@ assert.equal(channelAllowed(["#eng"], "C9", "eng"), true);
 assert.equal(channelAllowed(["eng"], "C9", "ops"), false);
 assert.equal(channelAllowed(["*"], "C9", "ops"), true);
 
-const challenge = decideSlackEvent({ type: "url_verification", challenge: "abc123" });
+const challenge = parseSlackEvent({ type: "url_verification", challenge: "abc123" });
 assert.deepEqual(challenge, { action: "challenge", challenge: "abc123" });
-const allowed = decideSlackEvent({
+const allowed = parseSlackEvent({
   type: "event_callback",
   team_id: "T1",
+  api_app_id: "A1",
   event_id: "Ev1",
-  event: { type: "app_mention", user: CHIEF_SLACK_USER_ID, text: "ship it", ts: "1.2", channel: "C1" },
+  authorizations: [{ user_id: "UBOT", is_bot: true }],
+  event: { type: "app_mention", user: "U08C40K4FHN", text: "ship it", ts: "1.2", channel: "C1" },
 });
 assert.equal(allowed.action, "ingest");
-const stranger = decideSlackEvent({
-  type: "event_callback",
-  team_id: "T1",
-  event: { type: "app_mention", user: "U000", text: "nope", ts: "1.2", channel: "C1" },
-});
-assert.deepEqual(stranger, { action: "ignore", reason: "mentioner" });
+assert.equal(ownerMayTrigger("U08C40K4FHN", null, { userIds: ["U08C40K4FHN"], emails: [] }), true);
+assert.equal(ownerMayTrigger("U000", "owner@example.com", { userIds: [], emails: ["owner@example.com"] }), true);
+assert.equal(ownerMayTrigger("U000", null, { userIds: ["U08C40K4FHN"], emails: [] }), false);
+assert.equal(ownerMayTrigger("U000", null, { userIds: [], emails: [] }), false);
+const picked = pickSlackConnections(
+  [
+    { teamId: "T1", apiAppId: "A1", botUserId: "UBOT" },
+    { teamId: "T1", apiAppId: "A2", botUserId: "UOTHER" },
+    { teamId: "T9", apiAppId: "A1", botUserId: "UBOT" },
+  ],
+  { teamId: "T1", apiAppId: "A1", botUserIds: ["UBOT"] },
+);
+assert.equal(picked.length, 1);
+assert.equal(picked[0]?.apiAppId, "A1");
 
 const raw = JSON.stringify({ type: "url_verification", challenge: "abc123" });
 const ts = String(Math.floor(Date.now() / 1000));

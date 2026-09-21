@@ -25,6 +25,7 @@ export type TriggerPayload = {
   messageTs?: string;
   slackTs?: string;
   eventId?: string;
+  apiAppId?: string | null;
   context?: string;
   via?: string;
 };
