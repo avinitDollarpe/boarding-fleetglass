@@ -25,6 +25,7 @@ async function withUser<T>(userId: string, fn: (client: pg.PoolClient) => Promis
   }
 }
 
+async function main() {
 const a = (await pool.query<{ id: string }>(
   "INSERT INTO users (email) VALUES ($1) RETURNING id",
   [`rls-a-${Date.now()}@fleetglass.local`],
@@ -66,3 +67,9 @@ assert.equal(seenByA, 1);
 await pool.query("DELETE FROM users WHERE id = ANY($1::uuid[])", [[a, b]]);
 await pool.end();
 console.log("rls checks ok");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
