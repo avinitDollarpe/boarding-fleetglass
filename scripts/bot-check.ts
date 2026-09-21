@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { channelAllowed, githubMentioned, slackMentioned } from "../src/lib/bots";
+import { CHIEF_SLACK_USER_ID, decideSlackEvent, verifySlackSignature } from "../src/lib/slack-event";
 
 assert.equal(slackMentioned("hey @Fleetglass check this", { handle: "Fleetglass", aliases: [] }), true);
 assert.equal(slackMentioned("<@U123> please", { handle: "Fleetglass", aliases: [], botUserId: "U123" }), true);
@@ -17,5 +19,29 @@ assert.equal(channelAllowed(["eng-supervisor"], "C1", "eng-supervisor"), true);
 assert.equal(channelAllowed(["C1"], "C1", "random"), true);
 assert.equal(channelAllowed(["#eng"], "C9", "eng"), true);
 assert.equal(channelAllowed(["eng"], "C9", "ops"), false);
+
+const challenge = decideSlackEvent({ type: "url_verification", challenge: "abc123" });
+assert.deepEqual(challenge, { action: "challenge", challenge: "abc123" });
+const allowed = decideSlackEvent({
+  type: "event_callback",
+  team_id: "T1",
+  event_id: "Ev1",
+  event: { type: "app_mention", user: CHIEF_SLACK_USER_ID, text: "ship it", ts: "1.2", channel: "C1" },
+});
+assert.equal(allowed.action, "ingest");
+const stranger = decideSlackEvent({
+  type: "event_callback",
+  team_id: "T1",
+  event: { type: "app_mention", user: "U000", text: "nope", ts: "1.2", channel: "C1" },
+});
+assert.deepEqual(stranger, { action: "ignore", reason: "mentioner" });
+
+const raw = JSON.stringify({ type: "url_verification", challenge: "abc123" });
+const ts = String(Math.floor(Date.now() / 1000));
+const secret = "chief-signing-secret";
+const sig = `v0=${createHmac("sha256", secret).update(`v0:${ts}:${raw}`).digest("hex")}`;
+assert.equal(verifySlackSignature(raw, ts, sig, secret), true);
+assert.equal(verifySlackSignature(raw, ts, "v0=deadbeef", secret), false);
+assert.equal(verifySlackSignature(raw, "1", sig, secret), false);
 
 console.log("bot checks ok");

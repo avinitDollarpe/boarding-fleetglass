@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { disconnectGithubInstall, disconnectSlackInstall, saveGithub, saveSlack } from "@/app/actions";
 import { Shell } from "@/components/app/shell";
 import { readGithub, readSlack } from "@/server/installs";
+import { CHIEF_SLACK_USER_ID } from "@/lib/slack-event";
 import { appOrigin } from "@/server/oauth-state";
 import { readPlan } from "@/server/plan";
 
@@ -32,7 +33,7 @@ export default async function IntegrationsPage({
           </p>
           <h1 className="text-3xl font-semibold tracking-tight">Integrations</h1>
           <p className="text-sm text-muted-foreground">
-            The Fleetglass Slack bot and GitHub App are the product listeners. They are not the Cursor bot. A Grok teammate named Fleetglass may sit in front of intake until the install is live. This page is the source of truth.
+            Chief is the Slack app. It is not a Cursor bot. Per-tenant OAuth on this page replaces the hand-rolled api.slack.com app later. A Grok teammate named Fleetglass is optional and interim. This page is the source of truth.
           </p>
         </div>
 
@@ -41,7 +42,7 @@ export default async function IntegrationsPage({
             <div>
               <h2 className="text-lg font-medium">Slack</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Install the Fleetglass app into a workspace. It opens a task when someone mentions @{slack.handle} or an alias, and when Slack delivers an app mention to this bot.
+                Display name is Chief. Event Subscriptions use the request URL below. An app mention creates a task only when the Slack user is {CHIEF_SLACK_USER_ID}.
               </p>
             </div>
             <span className="num text-sm text-muted-foreground">{slack.installed ? "Installed" : "Not installed"}</span>
@@ -75,7 +76,7 @@ export default async function IntegrationsPage({
             </label>
             <label className="flex flex-col gap-1 text-sm">
               Handle
-              <input name="handle" defaultValue={slack.handle} className="field" placeholder="Fleetglass" />
+              <input name="handle" defaultValue={slack.handle} className="field" placeholder="Chief" />
             </label>
             <label className="flex flex-col gap-1 text-sm">
               Aliases
@@ -94,7 +95,16 @@ export default async function IntegrationsPage({
               Save Slack bot
             </button>
           </form>
-          <p className="num break-all text-xs text-muted-foreground">Events URL {origin}/api/slack/events</p>
+          <div className="flex flex-col gap-2 rounded-[8px] border border-border p-3 text-sm">
+            <p className="font-medium">Event Subscriptions request URL</p>
+            <p className="num break-all">{origin}/api/slack/events</p>
+            <ol className="list-decimal space-y-1 ps-4 text-muted-foreground">
+              <li>Set SLACK_SIGNING_SECRET from the Chief app credentials.</li>
+              <li>Set SLACK_BOT_TOKEN so permalinks resolve. Set SLACK_FLEETGLASS_USER_ID or SLACK_OWNER_EMAIL until OAuth is installed.</li>
+              <li>Paste the request URL into Slack. Fleetglass returns the url_verification challenge after the signature checks out.</li>
+              <li>Subscribe to the bot event app_mention. Only {CHIEF_SLACK_USER_ID} is ingested.</li>
+            </ol>
+          </div>
         </section>
 
         <section className="card flex flex-col gap-4 p-4">

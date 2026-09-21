@@ -14,7 +14,7 @@ export async function GET(request: Request) {
       channelAllowlist: slack.channelAllowlist,
       enabled: slack.enabled,
       installed: slack.installed,
-      note: "Match the Fleetglass Slack bot: its handle and these aliases. @cursor is not a built-in target.",
+      note: "Chief is the Slack app. Match its handle and these aliases. app_mention intake accepts only the configured mentioner, default U08C40K4FHN.",
     });
   } catch (error) {
     return fleetResponse(error);

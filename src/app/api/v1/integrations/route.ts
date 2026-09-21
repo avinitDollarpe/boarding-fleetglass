@@ -29,8 +29,8 @@ export async function PUT(request: Request) {
     if (slack && typeof slack === "object" && !Array.isArray(slack)) {
       const row = slack as Record<string, unknown>;
       await saveSlackSettings(userId, {
-        displayName: typeof row.displayName === "string" ? row.displayName : "Fleetglass",
-        handle: typeof row.handle === "string" ? row.handle : "Fleetglass",
+        displayName: typeof row.displayName === "string" ? row.displayName : "Chief",
+        handle: typeof row.handle === "string" ? row.handle : "Chief",
         aliases: names(row.aliases),
         channelAllowlist: names(row.channelAllowlist),
         enabled: row.enabled === true,

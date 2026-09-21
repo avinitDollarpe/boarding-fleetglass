@@ -24,6 +24,7 @@ export type TriggerPayload = {
   user?: string;
   messageTs?: string;
   slackTs?: string;
+  eventId?: string;
   context?: string;
   via?: string;
 };
@@ -96,6 +97,9 @@ export function normalizeIntake(
   }
   const slackTs = payload.slackTs || payload.messageTs || null;
   if (slackTs && !payload.slackTs) payload.slackTs = slackTs;
+  if (!idempotencyKey && raw === "slack_bot_mention" && payload.eventId) {
+    idempotencyKey = `slack_event:${payload.eventId}`;
+  }
   if (!idempotencyKey && raw === "slack_bot_mention" && slackTs) {
     idempotencyKey =
       payload.teamId && payload.channelId

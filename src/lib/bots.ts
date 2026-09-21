@@ -1,6 +1,6 @@
 const NAME = /^@?([a-z0-9][a-z0-9._-]{0,79})$/i;
 
-export function cleanHandle(value: string, fallback = "Fleetglass"): string {
+export function cleanHandle(value: string, fallback = "Chief"): string {
   const trimmed = value.trim().replace(/^@/, "");
   return NAME.test(trimmed) ? trimmed : fallback;
 }

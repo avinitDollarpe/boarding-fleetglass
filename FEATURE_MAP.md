@@ -5,7 +5,7 @@ Fleetglass Postgres is the source of truth. The dashboard is per user. The Fleet
 ## Spine
 
 ```
-Fleetglass Slack bot | Fleetglass GitHub App | chat_delegate
+Chief Slack app | GitHub App | chat_delegate
         → intake (trigger + slack_ts or comment id)
         → Fleetglass task (create, follow-up, or dedupe)
         → Gilfoyle or the built-in orchestrator
@@ -22,9 +22,10 @@ Fleetglass Slack bot | Fleetglass GitHub App | chat_delegate
 | `github_pr_mention` | `tasks.trigger`, `tasks.source`, `src/lib/intake.ts` | Payload: repo, pr number/url, comment body, commenter, mention targets, comment id. `source_ref` is the PR URL, lowercased, without query or hash. |
 | `slack_bot_mention` | same | Payload: team, channel, permalink, text, user, `slackTs`. `source_ref` is the Slack permalink. |
 | `chat_delegate` | same | User delegates in chat. Dashboard add-task uses this trigger. |
-| Idempotency | `tasks.idempotency_key`, unique `(user_id, idempotency_key)` | Explicit key, else `github_comment:{commentId}`, else Slack message ts as `slack:{team}:{channel}:{slackTs}`. Duplicate webhook returns the existing task. |
+| Idempotency | `tasks.idempotency_key`, unique `(user_id, idempotency_key)` | Explicit key, else `github_comment:{commentId}`, else `slack_event:{eventId}`, else Slack message ts. Duplicate webhook returns the existing task. |
 | PR follow-up | `tasks.parent_id` | A later GitHub mention on a PR that already has a top-level task links a child. Dedupe wins. |
-| Slack bot | Settings → Integrations → Slack, `integrations` provider `slack` | Per-tenant OAuth. Encrypted bot token, display name, handle, aliases, channel allowlist, enabled. Default handle `Fleetglass`. |
+| Chief Slack app | `POST /api/slack/events`, Settings → Integrations → Slack | Request URL for Event Subscriptions. Signed `url_verification` returns `{ challenge }`. `app_mention` is ingested only for Slack user `U08C40K4FHN`. Idempotency is `slack_event:{eventId}` or `slack_ts`. `source_ref` is the permalink. Env `SLACK_SIGNING_SECRET` and `SLACK_BOT_TOKEN` run this before per-tenant OAuth. |
+| Slack settings | `integrations` provider `slack` | Display name Chief, handle, aliases, channel allowlist, enabled. OAuth install is the later per-tenant path. |
 | GitHub App | Settings → Integrations → GitHub, `integrations` provider `github` | Per-tenant installation id and mention targets. Same enable switch. Not `@cursor`. |
 
 ## Plan gate

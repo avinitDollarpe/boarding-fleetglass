@@ -49,8 +49,8 @@ function slackPublic(row: SlackRow | undefined): SlackPublic {
   const meta = asMeta(row?.metadata);
   const teamName = typeof meta.teamName === "string" ? meta.teamName : null;
   return {
-    displayName: row?.displayName || "Fleetglass",
-    handle: row?.handle || "Fleetglass",
+    displayName: row?.displayName || "Chief",
+    handle: row?.handle || "Chief",
     aliases: row?.aliases ?? [],
     channelAllowlist: row?.channelAllowlist ?? [],
     enabled: row?.enabled ?? false,
@@ -113,7 +113,7 @@ export async function saveSlackSettings(
   userId: string,
   input: { displayName: string; handle: string; aliases: string[]; channelAllowlist: string[]; enabled: boolean },
 ) {
-  const displayName = input.displayName.trim().slice(0, 80) || "Fleetglass";
+  const displayName = input.displayName.trim().slice(0, 80) || "Chief";
   const handle = cleanHandle(input.handle);
   const aliases = cleanNameList(input.aliases);
   const channelAllowlist = cleanNameList(input.channelAllowlist);
@@ -208,9 +208,9 @@ export async function storeSlackInstall(
       externalTeamId: install.teamId,
       externalId: install.botUserId,
       enabled: true,
-      displayName: "Fleetglass",
-      handle: "Fleetglass",
-      name: "Fleetglass",
+      displayName: "Chief",
+      handle: "Chief",
+      name: "Chief",
       metadata: { teamName: install.teamName },
     });
   });

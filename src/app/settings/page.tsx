@@ -59,7 +59,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <section className="card flex flex-col gap-3 p-4">
           <h2 className="text-lg font-medium">Integrations</h2>
           <p className="text-sm text-muted-foreground">
-            Install the Fleetglass Slack bot and GitHub App. Set the display name, handle, aliases, channel allowlist, and mention targets there.
+            Chief is the Slack app. The Event Subscriptions request URL, handle, and GitHub mention targets live under Integrations.
           </p>
           <Link href="/settings/integrations" className="press btn btn-quiet w-fit">
             Open integrations

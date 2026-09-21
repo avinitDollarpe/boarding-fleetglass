@@ -15,7 +15,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         <p className="text-sm text-muted-foreground">Fleetglass</p>
         <h1 className="max-w-xl text-4xl font-semibold tracking-tight">The board Gilfoyle writes before a cloud agent starts.</h1>
         <p className="max-w-xl text-muted-foreground">
-          The Fleetglass Slack bot or GitHub App hears a mention, or you delegate in chat. Gilfoyle opens the task here. An active Cursor plan launches the agent. Anything else stays in blocked:cursor_plan.
+          Chief, the Slack app, or the GitHub App hears a mention, or you delegate in chat. Gilfoyle opens the task here. An active Cursor plan launches the agent. Anything else stays in blocked:cursor_plan.
         </p>
       </div>
       <ol className="grid gap-3 text-sm sm:grid-cols-3">
