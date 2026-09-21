@@ -43,7 +43,7 @@ export default async function IntegrationsPage({
             <div>
               <h2 className="text-lg font-medium">Slack</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Display name is Richard, handle @{SLACK_HANDLE}. Aliases: {SLACK_ALIASES.join(", ")}. Channel scope * means every channel. An app mention creates a task only when the Slack user is {CHIEF_SLACK_USER_ID}.
+                Defaults are display name Richard and handle @{SLACK_HANDLE}. Built-in aliases: {SLACK_ALIASES.join(", ")}. Channel scope * means every channel. Fields below are this account’s saved settings. An app mention creates a task only when the Slack user is {CHIEF_SLACK_USER_ID}.
               </p>
             </div>
             <span className="num text-sm text-muted-foreground">{slack.installed ? "Installed" : "Not installed"}</span>
