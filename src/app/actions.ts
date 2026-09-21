@@ -34,6 +34,60 @@ export async function recheckPlan() {
   redirect(plan.status === "active" ? "/board" : "/board?checked=1");
 }
 
+function iso(value: Date | string) {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+export async function readTaskDetail(taskId: string) {
+  const id = await userId();
+  const loaded = await getTask(id, taskId);
+  if (!loaded) return null;
+  const inputTokens = loaded.usage.reduce((sum, row) => sum + row.inputTokens, 0);
+  const outputTokens = loaded.usage.reduce((sum, row) => sum + row.outputTokens, 0);
+  const costMicros = loaded.usage.reduce((sum, row) => sum + row.costMicros, 0);
+  return {
+    id: loaded.task.id,
+    name: loaded.task.name,
+    owner: loaded.task.owner,
+    state: loaded.task.state,
+    trigger: loaded.task.trigger,
+    sourceRef: loaded.task.sourceRef,
+    prUrl: loaded.task.prUrl,
+    bcId: loaded.task.bcId,
+    cloudAgentUrl: loaded.task.cloudAgentUrl,
+    repoUrl: loaded.task.repoUrl,
+    inputTokens,
+    outputTokens,
+    costMicros,
+    subtasks: loaded.subtasks.map((task) => ({
+      id: task.id,
+      name: task.name,
+      state: task.state,
+      trigger: task.trigger,
+      bcId: task.bcId,
+    })),
+    events: loaded.events.map((event) => ({
+      id: event.id,
+      kind: event.kind,
+      fromState: event.fromState,
+      toState: event.toState,
+      note: event.note,
+      actor: event.actor,
+      occurredAt: iso(event.occurredAt),
+    })),
+    usage: loaded.usage.map((row) => ({
+      id: row.id,
+      model: row.model,
+      agentId: row.agentId,
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      costMicros: row.costMicros,
+      source: row.source,
+      occurredAt: iso(row.occurredAt),
+    })),
+  };
+}
+
 export async function moveTask(taskId: string, state: string) {
   const id = await userId();
   try {

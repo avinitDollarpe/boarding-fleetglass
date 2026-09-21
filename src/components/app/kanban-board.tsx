@@ -17,9 +17,9 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalList
 import { CSS } from "@dnd-kit/utilities";
 import { Calendar, MoreHorizontal } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { moveTask } from "@/app/actions";
+import { TaskModal } from "@/components/app/task-modal";
 import { EASE_OUT } from "@/lib/ease";
 import {
   BOARD_COLUMNS,
@@ -107,14 +107,27 @@ function ProgressRing({ value, color }: { value: number; color: string }) {
   );
 }
 
-function CardBody({ task, handle }: { task: BoardCard; handle?: Record<string, unknown> }) {
+function CardBody({
+  task,
+  handle,
+  onOpen,
+}: {
+  task: BoardCard;
+  handle?: Record<string, unknown>;
+  onOpen?: (id: string) => void;
+}) {
   const health = fleetHealth(task.state);
   const color = HEALTH_COLOR[health];
   const progress = boardProgress(task.state, task.subtasks, task.subtasksDone);
   const trigger = TRIGGER[task.trigger] ?? { label: task.trigger, className: "bg-white/10 text-white/80" };
   const owner = task.owner.trim() || "Unassigned";
   return (
-    <article {...handle} aria-label={`Move ${task.name}`} className="board-card cursor-grab p-3 active:cursor-grabbing">
+    <article
+      {...handle}
+      aria-label={`Move ${task.name}`}
+      className="board-card cursor-grab p-3 active:cursor-grabbing"
+      onClick={() => onOpen?.(task.id)}
+    >
       <div className="flex flex-wrap items-center gap-1.5">
         <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${trigger.className}`}>
           {trigger.label}
@@ -125,9 +138,7 @@ function CardBody({ task, handle }: { task: BoardCard; handle?: Record<string, u
           {fleetHealthLabel(health)}
         </span>
       </div>
-      <Link href={`/tasks/${task.id}`} className="mt-2 block text-sm font-medium leading-snug text-white" onPointerDown={(event) => event.stopPropagation()}>
-        {task.name}
-      </Link>
+      <h3 className="mt-2 text-sm font-medium leading-snug text-white">{task.name}</h3>
       <div className="mt-3 flex items-center gap-2">
         <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-white/10 text-[9px] font-medium text-white" title={owner}>
           {initials(owner)}
@@ -143,7 +154,7 @@ function CardBody({ task, handle }: { task: BoardCard; handle?: Record<string, u
   );
 }
 
-function TaskCard({ task }: { task: BoardCard }) {
+function TaskCard({ task, onOpen }: { task: BoardCard; onOpen: (id: string) => void }) {
   const sortable = useSortable({ id: task.id });
   return (
     <div
@@ -151,7 +162,7 @@ function TaskCard({ task }: { task: BoardCard }) {
       style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
       className={sortable.isDragging ? "opacity-40" : undefined}
     >
-      <CardBody task={task} handle={{ ...sortable.attributes, ...sortable.listeners }} />
+      <CardBody task={task} onOpen={onOpen} handle={{ ...sortable.attributes, ...sortable.listeners }} />
     </div>
   );
 }
@@ -183,7 +194,17 @@ function ColumnMenu({ column }: { column: BoardColumnId }) {
   );
 }
 
-function Column({ index, column, tasks }: { index: number; column: BoardColumnId; tasks: BoardCard[] }) {
+function Column({
+  index,
+  column,
+  tasks,
+  onOpen,
+}: {
+  index: number;
+  column: BoardColumnId;
+  tasks: BoardCard[];
+  onOpen: (id: string) => void;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: column });
   return (
     <section data-accent={COLUMN_ACCENT[column]} className={`board-column flex w-[280px] shrink-0 flex-col ${isOver ? "ring-2 ring-white/40" : ""}`}>
@@ -202,7 +223,7 @@ function Column({ index, column, tasks }: { index: number; column: BoardColumnId
         <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
           {tasks.length === 0 ? <p className="px-1 py-2 text-xs text-[oklch(0.65_0.01_80)]">Empty</p> : null}
           {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} />
+            <TaskCard key={task.id} task={task} onOpen={onOpen} />
           ))}
         </SortableContext>
       </div>
@@ -213,7 +234,9 @@ function Column({ index, column, tasks }: { index: number; column: BoardColumnId
 export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
   const [items, setItems] = useState(cards);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const dragged = useRef(false);
   const reduce = useReducedMotion();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -228,11 +251,19 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
   }
 
   function onDragStart(event: DragStartEvent) {
+    dragged.current = true;
     setActiveId(String(event.active.id));
+  }
+
+  function clearDrag() {
+    window.setTimeout(() => {
+      dragged.current = false;
+    }, 0);
   }
 
   async function onDragEnd(event: DragEndEvent) {
     setActiveId(null);
+    clearDrag();
     const taskId = String(event.active.id);
     const overId = event.over ? String(event.over.id) : null;
     if (!overId) return;
@@ -270,6 +301,10 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
         }}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
+        onDragCancel={() => {
+          setActiveId(null);
+          clearDrag();
+        }}
       >
         <div className="flex gap-3 overflow-x-auto pb-2">
           {BOARD_COLUMNS.map((column, index) => (
@@ -278,6 +313,10 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
               index={index + 1}
               column={column.id}
               tasks={items.filter((task) => boardColumn(task.state) === column.id)}
+              onOpen={(id) => {
+                if (dragged.current) return;
+                setOpenId(id);
+              }}
             />
           ))}
         </div>
@@ -289,6 +328,7 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
           ) : null}
         </DragOverlay>
       </DndContext>
+      <TaskModal taskId={openId} onOpen={setOpenId} onClose={() => setOpenId(null)} />
       <AnimatePresence initial={false}>
         {notice ? (
           <motion.div

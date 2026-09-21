@@ -181,6 +181,23 @@ h3 {
   box-shadow: 0 0 0 1px oklch(1 0 0 / 0.08);
 }
 
+.task-dialog {
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: min(85vh, 44rem);
+  margin: auto;
+  overflow: auto;
+  border: 0;
+  border-radius: 16px;
+  padding: 0;
+  background: oklch(0.2 0.008 50);
+  color: white;
+  box-shadow: 0 0 0 1px oklch(1 0 0 / 0.1);
+}
+
+.task-dialog::backdrop {
+  background: oklch(0 0 0 / 0.62);
+}
+
 .field {
   height: 44px;
   width: 100%;

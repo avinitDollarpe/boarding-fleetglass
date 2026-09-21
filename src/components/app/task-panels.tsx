@@ -17,7 +17,17 @@ type Usage = {
   occurredAt: Date | string;
 };
 
-export function TaskPanels({ events, subtasks, usage }: { events: EventRow[]; subtasks: Subtask[]; usage: Usage[] }) {
+export function TaskPanels({
+  events,
+  subtasks,
+  usage,
+  onSelect,
+}: {
+  events: EventRow[];
+  subtasks: Subtask[];
+  usage: Usage[];
+  onSelect?: (id: string) => void;
+}) {
   return (
     <Tabs defaultValue="timeline" variant="underline">
       <TabsList>
@@ -48,10 +58,17 @@ export function TaskPanels({ events, subtasks, usage }: { events: EventRow[]; su
           {subtasks.length === 0 ? <li className="text-sm text-muted-foreground">No subtasks.</li> : null}
           {subtasks.map((task) => (
             <li key={task.id}>
-              <a href={`/tasks/${task.id}`} className="flex min-h-11 items-center justify-between gap-3 border-b border-border py-2">
-                <span>{task.name}</span>
-                <StateBadge state={task.state} />
-              </a>
+              {onSelect ? (
+                <button type="button" className="flex min-h-11 w-full items-center justify-between gap-3 border-b border-border py-2 text-start" onClick={() => onSelect(task.id)}>
+                  <span>{task.name}</span>
+                  <StateBadge state={task.state} />
+                </button>
+              ) : (
+                <a href={`/tasks/${task.id}`} className="flex min-h-11 items-center justify-between gap-3 border-b border-border py-2">
+                  <span>{task.name}</span>
+                  <StateBadge state={task.state} />
+                </a>
+              )}
             </li>
           ))}
         </ul>
