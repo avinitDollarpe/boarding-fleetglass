@@ -62,9 +62,13 @@ export default async function BoardPage({ searchParams }: { searchParams: Promis
       <KanbanBoard
         cards={parents.map((task): BoardCard => {
           const children = tasks.filter((child) => child.parentId === task.id);
+          const payload = task.payload as Record<string, unknown>;
+          const raw = payload.commentBody ?? payload.text ?? payload.context;
+          const body = typeof raw === "string" ? raw.trim() : "";
           return {
             id: task.id,
             name: task.name,
+            description: body && body !== task.name ? body : null,
             owner: task.owner,
             state: task.state,
             trigger: task.trigger,
