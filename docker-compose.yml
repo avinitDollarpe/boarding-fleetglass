@@ -23,17 +23,12 @@ services:
     environment:
       DATABASE_URL: postgres://fleetglass_app:fleetglass_app@db:5432/fleetglass
       DATABASE_URL_MIGRATE: postgres://fleetglass:fleetglass@db:5432/fleetglass
-      AUTH_SECRET: dev-only-fleetglass-auth-secret-32
-      AUTH_URL: http://localhost:3000
-      AUTH_TRUST_HOST: "true"
-      DEV_MAILBOX: "1"
-      ALLOW_PLAN_OVERRIDE: "1"
-      OWNER_EMAIL: ""
       SLACK_SIGNING_SECRET: ""
       SLACK_BOT_TOKEN: ""
       SLACK_MENTION_USER_ID: U08C40K4FHN
       SLACK_BOT_USER_ID: ""
-      INTEGRATION_SECRET_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      GITHUB_WEBHOOK_SECRET: ""
+      CHIEF_HANDOFF_URL: ""
     depends_on:
       db:
         condition: service_healthy
