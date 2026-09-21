@@ -9,10 +9,10 @@ The product is usable only with an active Cursor plan. If the plan is inactive, 
 Chief wakes on a mention and hands Gilfoyle the context. Fleetglass writes the task, then the plan gate launches a cloud agent:
 
 1. `github_pr_mention` — a PR comment on a repo under `DollarPe-Infra` or `avinitDollarpe` that @mentions `avinitDollarpe`, `cursor`, or `cursoragent`. Idempotency is the comment id. `source_ref` is the PR URL.
-2. `slack_bot_mention` — an `app_mention` of Richard (`@richard`) from Slack user `U08C40K4FHN`. Aliases include `@cursor`, `cursor bot`, and `cursoragent`. Channels are `*`. Idempotency is `slack_ts`. `source_ref` is the permalink.
+2. `slack_bot_mention` — an `app_mention` of a Slack bot that user saved under Settings → Integrations. The connector’s owner allowlist decides who may trigger it. Idempotency is `slack_ts`. `source_ref` is the permalink.
 3. `chat_delegate` — you delegate in chat
 
-An inactive Cursor plan stores the task as `blocked:cursor_plan` and does not launch. Settings → Integrations holds Richard’s display name, handle, aliases, and channel allowlist.
+An inactive Cursor plan stores the task as `blocked:cursor_plan` and does not launch. The board is a drag-and-drop kanban of those states. Settings → Integrations stores each Slack bot on the signed-in account.
 
 ## Slack Event Subscriptions
 
@@ -24,16 +24,15 @@ https://<your-host>/api/slack/events
 
 Locally that is `http://localhost:3000/api/slack/events`. On Vercel it is `https://<project>.vercel.app/api/slack/events`.
 
-The route is in the app so Richard can be pointed at it later. This release does not point the Slack app, and it does not make the challenge succeed against the Cursor Grok Bot webhook.
+Sign in, open Settings → Integrations → Slack, and save the bot you own. The signing secret, bot token, team id, app id, and owner allowlist are encrypted on your account. They are not environment variables. Several users can point different Slack apps at the same request URL.
 
-1. Copy Richard’s signing secret into `SLACK_SIGNING_SECRET`.
-2. Put the bot token in `SLACK_BOT_TOKEN`.
-3. Point the event at a fleet with `SLACK_FLEETGLASS_USER_ID` (uuid) or `SLACK_OWNER_EMAIL`. Per-tenant OAuth on Settings → Integrations uses `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` when those exist.
-4. In Slack, open Event Subscriptions, enable events, and paste the request URL.
-5. Slack posts `url_verification`. Fleetglass verifies `X-Slack-Signature` against `X-Slack-Request-Timestamp` and the raw body, then returns `200` and `{ "challenge": "<the challenge>" }`. A wrong signature is `401`. If `SLACK_SIGNING_SECRET` is unset, the response is `503`.
-6. Subscribe to the bot event `app_mention`.
-7. Only mentions from `U08C40K4FHN` create a task (`trigger=slack_bot_mention`, `source_ref` = permalink, idempotency = message `slack_ts`). Other users are ignored. `event_id` is stored and is not the key.
-8. Optional: set `CHIEF_HANDOFF_URL`. Fleetglass POSTs `{ "type": "fleetglass.slack_mention", "taskId", "sourceRef", "slackUser", "slackTs", "text" }` so Chief can hand the task to Gilfoyle. An active Cursor plan also launches from this app.
+1. Paste the signing secret, bot token, team id, app id, and at least one owner Slack user id or email. Enable the connector.
+2. In that Slack app, open Event Subscriptions and paste the request URL.
+3. Slack posts `url_verification`. Fleetglass matches a saved signing secret and returns `200` and `{ "challenge": "<the challenge>" }`. A wrong signature is `401`. If nobody has saved a signing secret, the response is `503`.
+4. Subscribe to `app_mention`. Events are routed by `team_id` and `api_app_id` (or the bot user id). Only the connector’s owner allowlist creates a task.
+5. Optional: set `CHIEF_HANDOFF_URL`. Fleetglass POSTs `{ "type": "fleetglass.slack_mention", "taskId", "sourceRef", "slackUser", "slackTs", "text" }`. An active Cursor plan also launches from this app.
+
+`SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET` are optional, for Add to Slack. The OAuth bot token is still stored on the user row. Pointing a live Slack app, and the Cursor Grok Bot webhook challenge, are later.
 
 GitHub: set `GITHUB_WEBHOOK_SECRET` and send `issue_comment` or `pull_request_review_comment` to `/api/github/webhook`. Repos outside `DollarPe-Infra` and `avinitDollarpe` are ignored. A mention of `avinitDollarpe`, `cursor`, or `cursoragent` creates a task keyed by `comment_id`.
 
@@ -49,7 +48,7 @@ docker compose up --build
 
 Open http://localhost:3000. `GET /api/health` returns `{ "ok": true }`.
 
-Magic links are not mailed in this setup. With `DEV_MAILBOX=1`, the link is printed and listed at http://localhost:3000/dev/mailbox. That page 404s on Vercel.
+Magic links are not mailed in this setup. After you send one, the app opens `/login/check-email`. With `DEV_MAILBOX=1`, the link is printed and listed at http://localhost:3000/dev/mailbox. That page 404s on Vercel. On Vercel, set `EMAIL_SERVER` so Nodemailer delivers the same link.
 
 The compose file sets `ALLOW_PLAN_OVERRIDE=1` and does not set `DEV_PLAN_OVERRIDE`, so the plan gate stays closed. To preview the board without a Cursor key, add this to the `app` service and recreate it:
 
@@ -135,13 +134,8 @@ Production is Vercel plus managed Postgres (Neon or Vercel Postgres).
 | `EMAIL_SERVER` | SMTP URL for magic links |
 | `EMAIL_FROM` | From address |
 | `INTEGRATION_SECRET_KEY` | 64 hex characters |
-| `SLACK_CLIENT_ID` | Richard Slack app client id (OAuth; optional until you install) |
-| `SLACK_CLIENT_SECRET` | Slack app client secret |
-| `SLACK_SIGNING_SECRET` | Richard app signing secret for `/api/slack/events` |
-| `SLACK_BOT_TOKEN` | Richard bot token (`xoxb-…`) for permalinks |
-| `SLACK_FLEETGLASS_USER_ID` | Fleet that receives mentions before OAuth |
-| `SLACK_OWNER_EMAIL` | Same fleet, looked up by email when the user id is unset |
-| `SLACK_MENTION_USER_ID` | Defaults to `U08C40K4FHN` |
+| `SLACK_CLIENT_ID` | Optional platform Slack OAuth client. Not a tenant secret |
+| `SLACK_CLIENT_SECRET` | Optional Slack OAuth client secret |
 | `CHIEF_HANDOFF_URL` | Optional POST target after a Slack task is created |
 | `GITHUB_APP_SLUG` | Extra GitHub mention target |
 | `GITHUB_WEBHOOK_SECRET` | GitHub webhook secret |
