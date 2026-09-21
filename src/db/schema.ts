@@ -154,6 +154,15 @@ export const integrations = pgTable("integrations", {
   secretHash: text("secret_hash").notNull(),
   secretEncrypted: text("secret_encrypted").notNull(),
   secretHint: text("secret_hint").notNull(),
+  displayName: text("display_name"),
+  handle: text("handle"),
+  aliases: text("aliases").array().notNull().default([]),
+  channelAllowlist: text("channel_allowlist").array().notNull().default([]),
+  mentionTargets: text("mention_targets").array().notNull().default([]),
+  enabled: boolean("enabled").notNull().default(false),
+  externalTeamId: text("external_team_id"),
+  externalId: text("external_id"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
@@ -175,17 +184,6 @@ export const cursorAccounts = pgTable("cursor_accounts", {
   planRaw: jsonb("plan_raw").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
-
-export const mentionAliases = pgTable("mention_aliases", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  workspaceId: uuid("workspace_id"),
-  kind: text("kind").notNull(),
-  alias: text("alias").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
 export const devMailbox = pgTable("dev_mailbox", {

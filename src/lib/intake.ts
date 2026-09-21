@@ -23,6 +23,7 @@ export type TriggerPayload = {
   text?: string;
   user?: string;
   messageTs?: string;
+  slackTs?: string;
   context?: string;
   via?: string;
 };
@@ -93,14 +94,13 @@ export function normalizeIntake(
   if (!idempotencyKey && raw === "github_pr_mention" && payload.commentId) {
     idempotencyKey = `github_comment:${payload.commentId}`;
   }
-  if (
-    !idempotencyKey &&
-    raw === "slack_bot_mention" &&
-    payload.teamId &&
-    payload.channelId &&
-    payload.messageTs
-  ) {
-    idempotencyKey = `slack:${payload.teamId}:${payload.channelId}:${payload.messageTs}`;
+  const slackTs = payload.slackTs || payload.messageTs || null;
+  if (slackTs && !payload.slackTs) payload.slackTs = slackTs;
+  if (!idempotencyKey && raw === "slack_bot_mention" && slackTs) {
+    idempotencyKey =
+      payload.teamId && payload.channelId
+        ? `slack:${payload.teamId}:${payload.channelId}:${slackTs}`
+        : `slack_ts:${slackTs}`;
   }
   if (idempotencyKey) idempotencyKey = idempotencyKey.slice(0, 200);
 

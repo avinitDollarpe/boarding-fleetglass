@@ -1,8 +1,9 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { mintKey, revokeKey, saveAliases } from "@/app/actions";
+import { mintKey, revokeKey } from "@/app/actions";
 import { Shell } from "@/components/app/shell";
-import { listIngestKeys, listSlackAliases } from "@/server/keys";
+import { listIngestKeys } from "@/server/keys";
 import { readPlan } from "@/server/plan";
 
 export const dynamic = "force-dynamic";
@@ -11,11 +12,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
   const query = await searchParams;
-  const [plan, keys, aliases] = await Promise.all([
-    readPlan(session.user.id),
-    listIngestKeys(session.user.id),
-    listSlackAliases(session.user.id),
-  ]);
+  const [plan, keys] = await Promise.all([readPlan(session.user.id), listIngestKeys(session.user.id)]);
   return (
     <Shell email={session.user.email} planActive={plan.status === "active"}>
       <div className="flex max-w-2xl flex-col gap-8">
@@ -60,16 +57,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           </ul>
         </section>
         <section className="card flex flex-col gap-3 p-4">
-          <h2 className="text-lg font-medium">Slack aliases</h2>
+          <h2 className="text-lg font-medium">Integrations</h2>
           <p className="text-sm text-muted-foreground">
-            Chief treats @cursor, the Cursor bot, and every name here as a mention. One alias per line. Chief owns the listener; this list is what it should read.
+            Install the Fleetglass Slack bot and GitHub App. Set the display name, handle, aliases, channel allowlist, and mention targets there.
           </p>
-          <form action={saveAliases} className="flex flex-col gap-3">
-            <textarea name="aliases" defaultValue={aliases.join("\n")} className="field min-h-28 py-2" />
-            <button type="submit" className="press btn btn-quiet w-fit">
-              Save aliases
-            </button>
-          </form>
+          <Link href="/settings/integrations" className="press btn btn-quiet w-fit">
+            Open integrations
+          </Link>
         </section>
       </div>
     </Shell>

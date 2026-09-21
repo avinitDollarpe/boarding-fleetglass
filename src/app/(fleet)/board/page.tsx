@@ -53,7 +53,7 @@ export default async function BoardPage() {
         <div className="card flex flex-col gap-3 p-6">
           <h2 className="text-xl font-medium">Nothing in this fleet yet</h2>
           <p className="max-w-xl text-sm text-muted-foreground">
-            Chief forwards a GitHub mention, a Slack alias, or a chat delegate. Gilfoyle creates the task here before any cloud agent starts. You can also add one by hand.
+            The Fleetglass bot forwards a GitHub mention, a Slack mention, or a chat delegate. Gilfoyle creates the task here before any cloud agent starts. You can also add one by hand.
           </p>
         </div>
       ) : null}

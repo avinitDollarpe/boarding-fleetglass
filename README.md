@@ -6,15 +6,15 @@ The product is usable only with an active Cursor plan. If the plan is inactive, 
 
 ## Spine
 
-Chief receives a task from any of three triggers, then hands it to Gilfoyle:
+The Fleetglass Slack bot and GitHub App receive a mention, then Gilfoyle (or the built-in orchestrator) writes the task:
 
-1. `github_pr_mention` — a PR comment that @mentions Chakravarti’s GitHub user, the Cursor bot, or `@cursor`
-2. `slack_bot_mention` — a Slack message that mentions `@cursor`, the Cursor bot, or a name in your alias list
-3. `chat_delegate` — you tell Chief to delegate
+1. `github_pr_mention` — a PR comment that mentions a login you configured on the Fleetglass GitHub App
+2. `slack_bot_mention` — a Slack message that mentions the Fleetglass bot, its handle, or an alias
+3. `chat_delegate` — you delegate in chat
 
-Gilfoyle writes the Fleetglass task, checks the Cursor plan, launches the cloud agent, and keeps state and token usage current. Chief owns the listeners. Gilfoyle owns the board, the launch, and the writes.
+Gilfoyle checks the Cursor plan, launches the cloud agent, and keeps state and token usage current. Configure the bots under Settings → Integrations. They are not the Cursor bot. A Grok teammate named Fleetglass may front intake until the Slack app is installed. The dashboard settings are the source of truth.
 
-Duplicate comment webhooks collapse on an idempotency key (`comment_id`, or Slack team + channel + message ts). A later mention on a pull request that already has a task becomes a follow-up on that parent.
+Duplicate events collapse on an idempotency key (`comment_id`, or the Slack message timestamp `slack_ts`). A later mention on a pull request that already has a task becomes a follow-up on that parent.
 
 ## Local
 
@@ -83,9 +83,9 @@ curl -s -X POST http://localhost:3000/api/v1/tasks \
       "repo": "acme/app",
       "prNumber": 42,
       "prUrl": "https://github.com/acme/app/pull/42",
-      "commentBody": "@cursor fix the flaky checkout test",
+      "commentBody": "@fleetglass fix the flaky checkout test",
       "commenter": "chakravarti",
-      "mentionTargets": ["cursor"],
+      "mentionTargets": ["fleetglass"],
       "commentId": "ic_123"
     }
   }'
@@ -111,6 +111,11 @@ Production is Vercel plus managed Postgres (Neon or Vercel Postgres).
 | `EMAIL_SERVER` | SMTP URL for magic links |
 | `EMAIL_FROM` | From address |
 | `INTEGRATION_SECRET_KEY` | 64 hex characters |
+| `SLACK_CLIENT_ID` | Fleetglass Slack app client id |
+| `SLACK_CLIENT_SECRET` | Slack app client secret |
+| `SLACK_SIGNING_SECRET` | Slack signing secret for `/api/slack/events` |
+| `GITHUB_APP_SLUG` | Fleetglass GitHub App slug |
+| `GITHUB_WEBHOOK_SECRET` | GitHub webhook secret |
 | `DEV_MAILBOX` | unset |
 | `ALLOW_PLAN_OVERRIDE` | unset |
 | `DEV_PLAN_OVERRIDE` | unset |

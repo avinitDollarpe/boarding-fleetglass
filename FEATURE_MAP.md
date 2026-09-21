@@ -1,16 +1,16 @@
 # Feature map
 
-Fleetglass Postgres is the source of truth. The dashboard is per user. Chief listens. Gilfoyle writes. Cursor cloud agents do the work, and only when the Cursor plan is active.
+Fleetglass Postgres is the source of truth. The dashboard is per user. The Fleetglass Slack bot and GitHub App listen. Gilfoyle writes and launches. Cursor cloud agents do the work, and only when the Cursor plan is active.
 
 ## Spine
 
 ```
-github_pr_mention | slack_bot_mention | chat_delegate
-        → Chief
-        → Gilfoyle (context)
-        → POST /api/v1/tasks  (create or follow-up or dedupe)
+Fleetglass Slack bot | Fleetglass GitHub App | chat_delegate
+        → intake (trigger + slack_ts or comment id)
+        → Fleetglass task (create, follow-up, or dedupe)
+        → Gilfoyle or the built-in orchestrator
         → Cursor plan gate
-        → POST /api/v1/tasks/:id/launch
+        → Cloud Agent
         → state / token / subtask updates
         → board, task detail, heatmap
 ```
@@ -20,11 +20,12 @@ github_pr_mention | slack_bot_mention | chat_delegate
 | Feature | Where | Behavior |
 | --- | --- | --- |
 | `github_pr_mention` | `tasks.trigger`, `tasks.source`, `src/lib/intake.ts` | Payload: repo, pr number/url, comment body, commenter, mention targets, comment id. `source_ref` is the PR URL, lowercased, without query or hash. |
-| `slack_bot_mention` | same | Payload: team, channel, permalink, text, user, message ts. `source_ref` is the Slack permalink. |
-| `chat_delegate` | same | User tells Chief to delegate. Dashboard add-task uses this trigger. |
-| Idempotency | `tasks.idempotency_key`, unique `(user_id, idempotency_key)` | Explicit key, else `github_comment:{commentId}`, else `slack:{teamId}:{channelId}:{messageTs}`. Duplicate webhook returns the existing task. |
+| `slack_bot_mention` | same | Payload: team, channel, permalink, text, user, `slackTs`. `source_ref` is the Slack permalink. |
+| `chat_delegate` | same | User delegates in chat. Dashboard add-task uses this trigger. |
+| Idempotency | `tasks.idempotency_key`, unique `(user_id, idempotency_key)` | Explicit key, else `github_comment:{commentId}`, else Slack message ts as `slack:{team}:{channel}:{slackTs}`. Duplicate webhook returns the existing task. |
 | PR follow-up | `tasks.parent_id` | A later GitHub mention on a PR that already has a top-level task links a child. Dedupe wins. |
-| Slack aliases | `mention_aliases`, `GET/PUT /api/v1/aliases` | Per-user names besides built-in `@cursor` and `Cursor`. Chief reads the list. Fleetglass does not listen. |
+| Slack bot | Settings → Integrations → Slack, `integrations` provider `slack` | Per-tenant OAuth. Encrypted bot token, display name, handle, aliases, channel allowlist, enabled. Default handle `Fleetglass`. |
+| GitHub App | Settings → Integrations → GitHub, `integrations` provider `github` | Per-tenant installation id and mention targets. Same enable switch. Not `@cursor`. |
 
 ## Plan gate
 
@@ -54,11 +55,13 @@ github_pr_mention | slack_bot_mention | chat_delegate
 
 | Role | Owns |
 | --- | --- |
-| Chief | GitHub listener, Slack listener, handoff to Gilfoyle |
+| Fleetglass bot | Slack app and GitHub App listeners, intake, dashboard settings |
 | Gilfoyle | Board, Cursor launch, Fleetglass writes |
 | Fleetglass | Source of truth, plan gate, dashboard, ingest API |
 | Cursor Cloud | Worker. Refused when the plan is inactive |
 
+A Grok teammate named Fleetglass is an interim intake persona only.
+
 ## Out of scope
 
-Organizations, Notion as source of truth, Fleetglass-hosted GitHub or Slack subscriptions, invented cloud-agent ids.
+Organizations, Notion as source of truth, treating `@cursor` as a built-in listener, invented cloud-agent ids.

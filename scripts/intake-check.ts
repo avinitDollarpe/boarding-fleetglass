@@ -32,6 +32,15 @@ const slack = normalizeIntake({
 assert.equal(slack.ok, true);
 if (!slack.ok) process.exit(1);
 assert.equal(slack.value.idempotencyKey, "slack:T1:C1:1.2");
+assert.equal(slack.value.payload.slackTs, "1.2");
+const slackTsOnly = normalizeIntake({
+  trigger: "slack_bot_mention",
+  payload: { slackTs: "171.0", permalink: "https://example.slack.com/archives/C1/p171" },
+});
+assert.equal(slackTsOnly.ok, true);
+if (!slackTsOnly.ok) process.exit(1);
+assert.equal(slackTsOnly.value.idempotencyKey, "slack_ts:171.0");
+assert.equal(slackTsOnly.value.sourceRef, "https://example.slack.com/archives/C1/p171");
 assert.equal(
   decideIntake(slack.value, { byKey: null, byPr: { id: "other", parentId: null } }).action,
   "create",

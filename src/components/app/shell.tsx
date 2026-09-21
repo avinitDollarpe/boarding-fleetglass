@@ -2,9 +2,10 @@ import Link from "next/link";
 import { signOut } from "@/auth";
 
 const links = [
-  { href: "/board", label: "Board" },
-  { href: "/activity", label: "Activity" },
-  { href: "/settings", label: "Settings" },
+  { href: "/board", label: "Board", needsPlan: true },
+  { href: "/activity", label: "Activity", needsPlan: true },
+  { href: "/settings/integrations", label: "Integrations", needsPlan: false },
+  { href: "/settings", label: "Settings", needsPlan: false },
 ];
 
 export function Shell({
@@ -16,7 +17,7 @@ export function Shell({
   planActive: boolean;
   children: React.ReactNode;
 }) {
-  const visible = planActive ? links : links.filter((link) => link.href === "/settings");
+  const visible = links.filter((link) => planActive || !link.needsPlan);
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-10 border-b border-border bg-background/85 backdrop-blur">

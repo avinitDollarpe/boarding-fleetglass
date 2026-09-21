@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { pool, withUser } from "@/db/client";
-import { integrations, mentionAliases } from "@/db/schema";
+import { integrations } from "@/db/schema";
 import { decryptSecret, encryptSecret, hashSecret, hint, newIngestKey } from "@/lib/crypto";
 
 export async function userIdForIngestKey(token: string): Promise<string | null> {
@@ -43,7 +43,7 @@ export async function listIngestKeys(userId: string) {
         revokedAt: integrations.revokedAt,
       })
       .from(integrations)
-      .where(eq(integrations.userId, userId)),
+      .where(and(eq(integrations.userId, userId), eq(integrations.provider, "ingest"))),
   );
 }
 
@@ -72,29 +72,6 @@ export async function revokeIngestKey(userId: string, id: string) {
       .set({ revokedAt: new Date() })
       .where(and(eq(integrations.id, id), eq(integrations.userId, userId), isNull(integrations.revokedAt))),
   );
-}
-
-export async function listSlackAliases(userId: string): Promise<string[]> {
-  const rows = await withUser(userId, (tx) =>
-    tx
-      .select({ alias: mentionAliases.alias })
-      .from(mentionAliases)
-      .where(and(eq(mentionAliases.userId, userId), eq(mentionAliases.kind, "slack"))),
-  );
-  return rows.map((row) => row.alias);
-}
-
-export async function replaceSlackAliases(userId: string, aliases: string[]) {
-  const cleaned = [...new Set(aliases.map((alias) => alias.trim().replace(/^@/, "")).filter(Boolean))].slice(0, 40);
-  await withUser(userId, async (tx) => {
-    await tx.delete(mentionAliases).where(and(eq(mentionAliases.userId, userId), eq(mentionAliases.kind, "slack")));
-    if (cleaned.length) {
-      await tx.insert(mentionAliases).values(
-        cleaned.map((alias) => ({ userId, kind: "slack", alias })),
-      );
-    }
-  });
-  return cleaned;
 }
 
 export async function cursorKeyForUser(userId: string): Promise<string | null> {

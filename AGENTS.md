@@ -8,20 +8,19 @@ Fleetglass is a multi-tenant SaaS. Each person signs up with email and tracks th
 
 After any intake trigger, the path is the same:
 
-1. Chief (Grok Bot) receives the task.
-2. Chief delegates to Gilfoyle with the trigger context.
-3. Gilfoyle creates or updates the Fleetglass task before any Cloud Agent launch.
-4. Gilfoyle verifies an active Cursor plan. Inactive plans set the task to `blocked:cursor_plan` and do not launch.
-5. Gilfoyle launches a Cursor cloud agent and stores `bc_id` plus the agent URL.
-6. Gilfoyle and watchers write state, subtasks, and token usage. The dashboard shows the board, task timeline, tokens, and heatmap.
+1. The Fleetglass Slack bot or GitHub App receives the mention. Chat delegate still starts from the user telling the bot to hand work off.
+2. Intake creates or updates the Fleetglass task before any Cloud Agent launch.
+3. Gilfoyle, or the built-in orchestrator on the webhook, verifies an active Cursor plan. Inactive plans set the task to `blocked:cursor_plan` and do not launch.
+4. A launch stores `bc_id` plus the agent URL.
+5. State, subtasks, and token usage land on the dashboard.
 
 The product is only usable with an active Cursor plan. Onboarding and every new launch are gated. Babysitting a task that already has a `bc_id` may continue if the plan later lapses. Sync and usage reads are not launches.
 
 ### Ownership
 
-- Chief owns the GitHub and Slack listeners and the handoff to Gilfoyle.
-- Gilfoyle owns the board, launch, and Fleetglass writes.
-- Fleetglass stores tasks, verifies the plan, and serves the dashboard and ingest API. It does not subscribe to GitHub or Slack.
+- Fleetglass owns the Slack bot and the GitHub App. Both are installed per tenant from Settings → Integrations. They are not the Cursor bot.
+- Gilfoyle owns the board, launch, and Fleetglass writes after intake. The webhook orchestrator may launch when the plan is active.
+- A Grok teammate named Fleetglass may front intake until the Slack app is installed. That persona is interim. The source of truth is the SaaS bot configuration in this repo.
 
 ## Intake triggers
 
@@ -29,13 +28,15 @@ The product is only usable with an active Cursor plan. Onboarding and every new 
 
 | Trigger | When |
 | --- | --- |
-| `github_pr_mention` | A PR issue comment, review comment, or inline comment @mentions Chakravarti’s GitHub user, the Cursor bot, or `@cursor`. |
-| `slack_bot_mention` | A Slack message mentions `@cursor`, the Cursor bot, or a name in the user’s alias list. |
-| `chat_delegate` | The user tells Chief to delegate. The dashboard “Add task” form uses this trigger with `payload.via = dashboard`. |
+| `github_pr_mention` | A PR comment mentions a GitHub login configured on the tenant’s Fleetglass GitHub App, or `GITHUB_APP_SLUG`. |
+| `slack_bot_mention` | A Slack message mentions the Fleetglass bot (app mention), its handle, or an alias. Default handle is `Fleetglass`. |
+| `chat_delegate` | The user delegates in chat. The dashboard “Add task” form uses this trigger with `payload.via = dashboard`. |
 
-`tasks.source_ref` is the normalized PR URL or the Slack permalink. `tasks.trigger_payload` keeps the rest: repo, PR number, comment body, commenter, mention targets, team, channel, text, user.
+`tasks.source_ref` is the normalized PR URL or the Slack permalink. `tasks.trigger_payload` keeps the rest, including `slackTs`.
 
-Idempotency is `(user_id, idempotency_key)`. Callers may send `idempotencyKey`. Otherwise GitHub uses `github_comment:{commentId}` and Slack uses `slack:{teamId}:{channelId}:{messageTs}`. A duplicate POST returns `200` and `{ deduped: true }` with the existing task.
+Idempotency is `(user_id, idempotency_key)`. Callers may send `idempotencyKey`. Otherwise GitHub uses `github_comment:{commentId}`. Slack uses the message timestamp: `slack:{teamId}:{channelId}:{slackTs}`, or `slack_ts:{slackTs}` when team and channel are absent. `messageTs` is accepted as `slackTs`. A duplicate POST returns `200` and `{ deduped: true }` with the existing task.
+
+Settings → Integrations → Slack stores the OAuth bot token encrypted, plus display name, handle, aliases, channel allowlist, and enabled. GitHub stores the installation id and mention targets the same way. An empty channel allowlist means every channel. `@cursor` is not a built-in mention.
 
 A new `github_pr_mention` whose normalized PR URL already belongs to a top-level task becomes a follow-up child of that parent (`follow_up_linked`). Dedupe wins over follow-up. Subtasks are one level deep. Slack and chat do not link through `source_ref`.
 
@@ -69,7 +70,9 @@ Ingest-key lookup uses policy `integrations_key_lookup`: one unrevoked ingest ro
 Bearer ingest keys (`fg_…`), shown once. Session cookie routes are the dashboard.
 
 - `GET/POST /api/v1/plan` — live plan check
-- `GET/PUT /api/v1/aliases` — Slack alias list Chief should match, plus built-in `@cursor` and `Cursor`
+- `GET/PUT /api/v1/integrations` — Slack bot and GitHub App settings, without secrets
+- `GET/PUT /api/v1/aliases` — Fleetglass Slack handle and aliases. No built-in `@cursor`
+- `POST /api/slack/events` and `POST /api/github/webhook` — signed listeners that call intake, then the plan gate
 - `GET/POST /api/v1/tasks` — list; create with trigger metadata. `201` new, `200` deduped. `?sourceRef=` filters parents
 - `GET/PATCH/DELETE /api/v1/tasks/:id`
 - `POST /api/v1/tasks/:id/subtasks`
@@ -100,7 +103,8 @@ Commits: Conventional Commits, one concern each. Sole author Chakravarti Avinit 
 ```bash
 npm run typecheck
 npm run test:plan
-npx tsx scripts/intake-check.ts
+npm run test:intake
+npm run test:bots
 docker compose up --build
 ```
 

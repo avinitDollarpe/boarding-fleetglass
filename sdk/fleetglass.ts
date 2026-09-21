@@ -34,6 +34,7 @@ export function createFleetglassClient(options: { baseUrl: string; apiKey: strin
   return {
     plan: () => call("/api/v1/plan"),
     aliases: () => call("/api/v1/aliases"),
+    integrations: () => call("/api/v1/integrations"),
     createTask: (task: IngestTask) => call("/api/v1/tasks", { method: "POST", body: JSON.stringify(task) }),
     transition: (taskId: string, state: string, note?: string) =>
       call(`/api/v1/tasks/${taskId}/transition`, { method: "POST", body: JSON.stringify({ state, note }) }),

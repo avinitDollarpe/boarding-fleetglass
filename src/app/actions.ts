@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/auth";
 import { createTask, ingestUsage, launchTask, transitionTask } from "@/server/fleet";
-import { createIngestKey, replaceSlackAliases, revokeIngestKey } from "@/server/keys";
+import { createIngestKey, revokeIngestKey } from "@/server/keys";
+import { disconnectGithub, disconnectSlack, saveGithubSettings, saveSlackSettings } from "@/server/installs";
 import { linkCursorKey } from "@/server/plan";
 import { loadSampleFleet } from "@/server/sample";
 
@@ -116,12 +117,42 @@ export async function revokeKey(formData: FormData) {
   revalidatePath("/settings");
 }
 
-export async function saveAliases(formData: FormData) {
-  const id = await userId();
-  const aliases = String(formData.get("aliases") ?? "")
+function lines(value: FormDataEntryValue | null): string[] {
+  return String(value ?? "")
     .split(/[\n,]/)
-    .map((alias) => alias.trim())
+    .map((item) => item.trim())
     .filter(Boolean);
-  await replaceSlackAliases(id, aliases);
-  revalidatePath("/settings");
+}
+
+export async function saveSlack(formData: FormData) {
+  const id = await userId();
+  await saveSlackSettings(id, {
+    displayName: String(formData.get("displayName") ?? ""),
+    handle: String(formData.get("handle") ?? ""),
+    aliases: lines(formData.get("aliases")),
+    channelAllowlist: lines(formData.get("channelAllowlist")),
+    enabled: formData.get("enabled") === "on",
+  });
+  revalidatePath("/settings/integrations");
+}
+
+export async function saveGithub(formData: FormData) {
+  const id = await userId();
+  await saveGithubSettings(id, {
+    mentionTargets: lines(formData.get("mentionTargets")),
+    enabled: formData.get("enabled") === "on",
+  });
+  revalidatePath("/settings/integrations");
+}
+
+export async function disconnectSlackInstall() {
+  const id = await userId();
+  await disconnectSlack(id);
+  revalidatePath("/settings/integrations");
+}
+
+export async function disconnectGithubInstall() {
+  const id = await userId();
+  await disconnectGithub(id);
+  revalidatePath("/settings/integrations");
 }

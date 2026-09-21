@@ -1,4 +1,4 @@
-import { listSlackAliases, replaceSlackAliases } from "@/server/keys";
+import { readSlack, saveSlackSettings } from "@/server/installs";
 import { fleetResponse, readJson, requireBearer } from "@/server/http";
 
 export const runtime = "nodejs";
@@ -6,11 +6,15 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     const userId = await requireBearer(request);
-    const slack = await listSlackAliases(userId);
+    const slack = await readSlack(userId);
     return Response.json({
-      slack,
-      builtIn: ["@cursor", "Cursor"],
-      note: "Chief matches @cursor, the Cursor bot, or any alias in this list. Fleetglass stores the list; Chief owns the listener.",
+      handle: slack.handle,
+      displayName: slack.displayName,
+      aliases: slack.aliases,
+      channelAllowlist: slack.channelAllowlist,
+      enabled: slack.enabled,
+      installed: slack.installed,
+      note: "Match the Fleetglass Slack bot: its handle and these aliases. @cursor is not a built-in target.",
     });
   } catch (error) {
     return fleetResponse(error);
@@ -21,8 +25,11 @@ export async function PUT(request: Request) {
   try {
     const userId = await requireBearer(request);
     const body = await readJson(request);
-    const slack = Array.isArray(body.slack) ? body.slack.filter((item): item is string => typeof item === "string") : [];
-    return Response.json({ slack: await replaceSlackAliases(userId, slack) });
+    const current = await readSlack(userId);
+    const aliases = Array.isArray(body.aliases) ? body.aliases.filter((item): item is string => typeof item === "string") : current.aliases;
+    await saveSlackSettings(userId, { ...current, aliases });
+    const slack = await readSlack(userId);
+    return Response.json({ aliases: slack.aliases, handle: slack.handle });
   } catch (error) {
     return fleetResponse(error);
   }
