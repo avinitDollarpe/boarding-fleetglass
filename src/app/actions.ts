@@ -3,11 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/auth";
-import { FleetError, createTask, ingestUsage, launchTask, transitionTask } from "@/server/fleet";
+import { FleetError, getTask, ingestUsage, launchTask, transitionTask } from "@/server/fleet";
 import { createIngestKey, revokeIngestKey } from "@/server/keys";
 import { disconnectGithub, disconnectSlack, saveGithubSettings, saveSlackSettings } from "@/server/installs";
+import { boardColumn, isBoardColumn, stateForColumn } from "@/lib/states";
 import { linkCursorKey } from "@/server/plan";
-import { loadSampleFleet } from "@/server/sample";
 
 async function userId() {
   const session = await auth();
@@ -35,29 +35,6 @@ export async function recheckPlan() {
   redirect(plan.status === "active" ? "/board" : "/onboarding?checked=1");
 }
 
-export async function addTask(formData: FormData) {
-  const id = await userId();
-  await createTask(
-    id,
-    {
-      name: String(formData.get("name") ?? ""),
-      owner: String(formData.get("owner") ?? ""),
-      trigger: "chat_delegate",
-      payload: { via: "dashboard", context: String(formData.get("name") ?? "") },
-      actor: "dashboard",
-    },
-    "dashboard",
-  );
-  revalidatePath("/board");
-}
-
-export async function loadSample() {
-  const id = await userId();
-  await loadSampleFleet(id);
-  revalidatePath("/board");
-  revalidatePath("/activity");
-}
-
 export async function moveTask(taskId: string, state: string) {
   const id = await userId();
   try {
@@ -79,7 +56,11 @@ export async function moveTask(taskId: string, state: string) {
 export async function changeState(formData: FormData) {
   const id = await userId();
   const taskId = String(formData.get("taskId") ?? "");
-  await transitionTask(id, taskId, String(formData.get("state") ?? ""), null, "dashboard");
+  const column = String(formData.get("column") ?? "");
+  if (!isBoardColumn(column)) return;
+  const current = await getTask(id, taskId);
+  if (!current || boardColumn(current.task.state) === column) return;
+  await transitionTask(id, taskId, stateForColumn(column), null, "dashboard");
   revalidatePath(`/tasks/${taskId}`);
   revalidatePath("/board");
 }

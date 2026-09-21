@@ -16,7 +16,7 @@ export function BoardStats({
 }) {
   const tiles = [
     { label: "Open", value: open, format: (value: number) => String(value) },
-    { label: "Plan blocked", value: blocked, format: (value: number) => String(value) },
+    { label: "Blocked", value: blocked, format: (value: number) => String(value) },
     { label: "Tokens, 7d", value: tokens, format: formatTokens },
     { label: "Estimate, 7d", value: costMicros, format: formatUsdFromMicros },
   ];

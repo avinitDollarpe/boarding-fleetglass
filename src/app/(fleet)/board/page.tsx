@@ -1,5 +1,4 @@
 import { auth } from "@/auth";
-import { addTask, loadSample } from "@/app/actions";
 import { BoardStats } from "@/components/app/board-stats";
 import { KanbanBoard, type BoardCard } from "@/components/app/kanban-board";
 import { redirect } from "next/navigation";
@@ -14,46 +13,21 @@ export default async function BoardPage() {
   const parents = tasks.filter((task) => !task.parentId);
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="page-title">Board</h1>
-          <p className="mt-1 text-sm text-muted-foreground">One fleet. Every trigger Gilfoyle is watching.</p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <form action={loadSample}>
-            <button type="submit" className="press btn btn-quiet">
-              Load sample fleet
-            </button>
-          </form>
-        </div>
+      <div>
+        <h1 className="page-title">Board</h1>
+        <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+          Tasks arrive from Slack, GitHub, or a chat handoff. Drag a card to change its column.
+        </p>
       </div>
       <BoardStats
         open={parents.filter((task) => task.state !== "Done" && task.state !== "Cancelled").length}
-        blocked={parents.filter((task) => task.state === "blocked:cursor_plan").length}
+        blocked={parents.filter((task) => task.state === "blocked:cursor_plan" || task.state === "Blocked").length}
         tokens={stats.weekTokens}
         costMicros={stats.weekCost}
       />
-      {parents.some((task) => task.isSample) ? (
-        <p className="text-sm text-muted-foreground">Sample fleet is on this board. Token rows sourced as sample are generated locally so the heatmap has a shape.</p>
-      ) : null}
       {parents.length === 0 ? (
-        <p className="max-w-xl text-sm text-muted-foreground">
-          Nothing in this fleet yet. A Slack mention, a GitHub mention, or a chat delegate lands here before any cloud agent starts.
-        </p>
+        <p className="max-w-xl text-sm text-muted-foreground">Nothing in this fleet yet.</p>
       ) : null}
-      <form action={addTask} className="card grid gap-3 p-4 md:grid-cols-[1fr_180px_auto] md:items-end">
-        <label className="flex flex-col gap-1 text-sm">
-          Task
-          <input name="name" required className="field" placeholder="What should Gilfoyle track?" />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Owner
-          <input name="owner" className="field" placeholder="Gilfoyle" />
-        </label>
-        <button type="submit" className="press btn btn-primary">
-          Add task
-        </button>
-      </form>
       <KanbanBoard
         cards={parents.map((task): BoardCard => {
           const children = tasks.filter((child) => child.parentId === task.id);

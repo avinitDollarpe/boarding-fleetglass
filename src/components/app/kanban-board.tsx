@@ -20,10 +20,10 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
 import { moveTask } from "@/app/actions";
-import { StateBadge, TriggerLabel } from "@/components/app/state-badge";
+import { TriggerLabel } from "@/components/app/state-badge";
 import { EASE_OUT } from "@/lib/ease";
 import { formatTokens } from "@/lib/format";
-import { STATES } from "@/lib/states";
+import { BOARD_COLUMNS, boardColumn, boardLabel, isBoardColumn, stateForColumn, type BoardColumnId } from "@/lib/states";
 
 export type BoardCard = {
   id: string;
@@ -90,17 +90,19 @@ function TaskCard({ task }: { task: BoardCard }) {
   );
 }
 
-function Column({ state, tasks }: { state: string; tasks: BoardCard[] }) {
-  const { setNodeRef, isOver } = useDroppable({ id: state });
+function Column({ column, tasks }: { column: BoardColumnId; tasks: BoardCard[] }) {
+  const { setNodeRef, isOver } = useDroppable({ id: column });
   return (
-    <section className={`column flex w-72 shrink-0 flex-col ${isOver ? "ring-2 ring-primary" : ""}`}>
-      <header className="mb-3 flex items-center justify-between gap-2">
-        <StateBadge state={state} />
-        <span className="num text-sm text-muted-foreground">{tasks.length}</span>
+    <section className={`column flex min-h-48 flex-col ${isOver ? "ring-2 ring-primary" : ""}`}>
+      <header className="mb-2 flex items-center justify-between gap-2 px-1">
+        <h2 className={`text-xs font-medium ${column === "IN_PROGRESS" ? "text-primary" : column === "BLOCKED" ? "text-danger" : column === "DONE" ? "text-success" : "text-muted-foreground"}`}>
+          {boardLabel(column)}
+        </h2>
+        <span className="num text-xs text-muted-foreground">{tasks.length}</span>
       </header>
       <div ref={setNodeRef} className="flex min-h-24 flex-1 flex-col gap-2">
         <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-          {tasks.length === 0 ? <p className="px-1 py-2 text-sm text-muted-foreground">Drop a task</p> : null}
+          {tasks.length === 0 ? <p className="px-1 py-2 text-xs text-muted-foreground">Empty</p> : null}
           {tasks.map((task) => (
             <TaskCard key={task.id} task={task} />
           ))}
@@ -121,9 +123,10 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
   );
   const active = items.find((task) => task.id === activeId) ?? null;
 
-  function columnOf(id: string) {
-    if ((STATES as readonly string[]).includes(id)) return id;
-    return items.find((task) => task.id === id)?.state ?? null;
+  function columnOf(id: string): BoardColumnId | null {
+    if (isBoardColumn(id)) return id;
+    const task = items.find((item) => item.id === id);
+    return task ? boardColumn(task.state) : null;
   }
 
   function onDragStart(event: DragStartEvent) {
@@ -135,25 +138,27 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
     const taskId = String(event.active.id);
     const overId = event.over ? String(event.over.id) : null;
     if (!overId) return;
-    const from = items.find((task) => task.id === taskId)?.state;
+    const task = items.find((item) => item.id === taskId);
+    const from = task ? boardColumn(task.state) : null;
     const to = columnOf(overId);
     if (!from || !to || from === to) return;
+    const next = stateForColumn(to);
     const previous = items;
-    setItems((current) => current.map((task) => (task.id === taskId ? { ...task, state: to } : task)));
-    const result = await moveTask(taskId, to);
+    setItems((current) => current.map((item) => (item.id === taskId ? { ...item, state: next } : item)));
+    const result = await moveTask(taskId, next);
     if (!result.ok) {
       const landed = result.state;
       setItems(
         landed
-          ? previous.map((task) => (task.id === taskId ? { ...task, state: landed } : task))
+          ? previous.map((item) => (item.id === taskId ? { ...item, state: landed } : item))
           : previous,
       );
       setNotice(result.message);
       return;
     }
-    if (result.state !== to) {
-      setItems((current) => current.map((task) => (task.id === taskId ? { ...task, state: result.state } : task)));
-      setNotice(`Cursor plan gate moved this task to ${result.state}.`);
+    if (boardColumn(result.state) !== to) {
+      setItems((current) => current.map((item) => (item.id === taskId ? { ...item, state: result.state } : item)));
+      setNotice(`Plan gate moved this task to ${boardLabel(result.state)}.`);
     }
   }
 
@@ -168,14 +173,14 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
       >
-        <div className="flex gap-4 overflow-x-auto pb-4 pe-8">
-          {STATES.map((state) => (
-            <Column key={state} state={state} tasks={items.filter((task) => task.state === state)} />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          {BOARD_COLUMNS.map((column) => (
+            <Column key={column.id} column={column.id} tasks={items.filter((task) => boardColumn(task.state) === column.id)} />
           ))}
         </div>
         <DragOverlay>
           {active ? (
-            <div className="w-72">
+            <div className="w-56">
               <CardBody task={active} />
             </div>
           ) : null}

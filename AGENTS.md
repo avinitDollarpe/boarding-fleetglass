@@ -30,7 +30,7 @@ The product is only usable with an active Cursor plan. Onboarding and every new 
 | --- | --- |
 | `github_pr_mention` | A PR comment on a repo under `DollarPe-Infra` or `avinitDollarpe` @mentions GitHub user `avinitDollarpe`, or `cursor` / `cursoragent` / `@cursor`. |
 | `slack_bot_mention` | An `app_mention` of a Slack bot saved on that user’s connector. The connector’s owner allowlist decides who may trigger it. |
-| `chat_delegate` | The user delegates in chat. The dashboard “Add task” form uses this trigger with `payload.via = dashboard`. |
+| `chat_delegate` | The user delegates in chat, or another client posts the trigger to the ingest API. The dashboard does not create tasks. |
 
 `tasks.source_ref` is the PR URL for GitHub and the Slack permalink for Slack.
 
@@ -122,9 +122,20 @@ Inactive plan on create still inserts the task as `blocked:cursor_plan`. Inactiv
 
 ## States
 
-`Working`, `Watching 1/3`, `Watching 2/3`, `Watching 3/3`, `Ready for review`, `Holding`, `Blocked`, `blocked:cursor_plan`, `Done`, `Cancelled`.
+Stored states stay: `Holding`, `Working`, `Watching 1/3`, `Watching 2/3`, `Watching 3/3`, `Ready for review`, `Blocked`, `blocked:cursor_plan`, `Done`, `Cancelled`.
 
-Create with an active plan starts at `Holding`, then `Working` after launch.
+The board shows six columns. A drop writes the column’s canonical state. A drop inside the same column is a no-op, so a watching stage is kept until the card leaves that column. `blocked:cursor_plan` stays in Blocked; the plan gate still writes that stored state.
+
+| Column | Id | Stored states | Drop writes |
+| --- | --- | --- | --- |
+| Pending | `PENDING` | `Holding` | `Holding` |
+| In progress | `IN_PROGRESS` | `Working`, `Watching 1/3`, `Watching 2/3`, `Watching 3/3` | `Working` |
+| In review | `IN_REVIEW` | `Ready for review` | `Ready for review` |
+| Blocked | `BLOCKED` | `Blocked`, `blocked:cursor_plan` | `Blocked` |
+| Done | `DONE` | `Done` | `Done` |
+| Cancelled | `CANCELLED` | `Cancelled` | `Cancelled` |
+
+Create with an active plan starts at `Holding` (Pending), then `Working` (In progress) after launch.
 
 ## Repo
 

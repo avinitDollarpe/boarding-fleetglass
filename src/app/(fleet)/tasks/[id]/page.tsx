@@ -5,7 +5,7 @@ import { changeState, launchAgent, recordUsage } from "@/app/actions";
 import { StateBadge, TriggerLabel } from "@/components/app/state-badge";
 import { TaskPanels } from "@/components/app/task-panels";
 import { formatTokens, formatUsdFromMicros } from "@/lib/format";
-import { STATES } from "@/lib/states";
+import { BOARD_COLUMNS, boardColumn } from "@/lib/states";
 import { getTask } from "@/server/fleet";
 
 export const dynamic = "force-dynamic";
@@ -77,14 +77,17 @@ export default async function TaskPage({
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
         <form action={changeState} className="card flex flex-col gap-3 p-4">
           <input type="hidden" name="taskId" value={task.id} />
-          <label htmlFor="state" className="text-sm">
-            State
+          <label htmlFor="column" className="text-sm">
+            Column
           </label>
-          <select id="state" name="state" defaultValue={task.state} className="field">
-            {STATES.map((state) => (
-              <option key={state}>{state}</option>
+          <select id="column" name="column" defaultValue={boardColumn(task.state)} className="field">
+            {BOARD_COLUMNS.map((column) => (
+              <option key={column.id} value={column.id}>
+                {column.label}
+              </option>
             ))}
           </select>
+          <p className="text-xs text-muted-foreground">Stored as {task.state}</p>
           <button type="submit" className="press btn btn-quiet">
             Update state
           </button>

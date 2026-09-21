@@ -20,7 +20,7 @@ Chief (Richard @richard | GitHub mention | chat_delegate)
 | --- | --- | --- |
 | `github_pr_mention` | `tasks.trigger`, `src/lib/bots.ts`, `POST /api/github/webhook` | User `avinitDollarpe`. Repos under `DollarPe-Infra` and `avinitDollarpe`. Mentions `avinitDollarpe`, `cursor`, or `cursoragent`. `source_ref` is the PR URL. Idempotency is `github_comment:{comment_id}`. |
 | `slack_bot_mention` | `POST /api/slack/events` | Resolved by `team_id` plus `api_app_id` or bot user id. Owner allowlist is on that connector. `source_ref` is the permalink. Idempotency is `slack_ts`, not `event_id`. |
-| `chat_delegate` | dashboard add-task, ingest | User delegates in chat. `payload.via = dashboard` from the board. |
+| `chat_delegate` | ingest API | User delegates in chat. The dashboard does not create tasks. |
 | Idempotency | `tasks.idempotency_key`, unique `(user_id, idempotency_key)` | GitHub key is the comment id. Slack key is `slack:{team}:{channel}:{slack_ts}`. Duplicate webhook returns the existing task. |
 | PR follow-up | `tasks.parent_id` | A later GitHub mention on a PR that already has a top-level task links a child. Dedupe wins. |
 | Slack events | `POST /api/slack/events` | One URL for every bot. `url_verification` tries each saved signing secret and returns `{ challenge }`. `app_mention` is ingested only when that connector’s owner allowlist matches. |
@@ -43,13 +43,13 @@ Chief (Richard @richard | GitHub mention | chat_delegate)
 | --- | --- | --- |
 | Auth | Auth.js magic link | Database sessions. After send, the browser lands on `/login/check-email`. Dev mailbox at `/dev/mailbox` when `DEV_MAILBOX=1` and not on Vercel. |
 | Tenancy | `user_id` + RLS | Personal accounts. `workspace_id` nullable. No orgs in v1. |
-| Tasks | `/board`, `/api/v1/tasks` | Drag-and-drop kanban. Columns are task states, including `blocked:cursor_plan`. A drop calls the state transition API. |
+| Tasks | `/board`, `/api/v1/tasks` | Drag-and-drop kanban with six columns: Pending, In progress, In review, Blocked, Done, Cancelled. `blocked:cursor_plan` sits in Blocked. A drop writes that column’s canonical stored state. Same-column drops do nothing. Tasks are created by ingest, not by the board. |
 | Subtasks | task detail, `POST /api/v1/tasks/:id/subtasks` | One level. Timeline, subtasks, and tokens use beui tabs. |
 | Tokens | `token_usage`, `POST /api/v1/usage`, `POST /api/v1/tasks/:id/sync` | Per task. Cursor sync upserts `cursor:{bcId}:{runId}` and rolls the delta. Cost is an estimate in micros. |
 | Heatmap | `/activity` | Account-level daily event counts, 20 weeks, Monday-first UTC, beui HeatCalendar. |
 | Agent status | `POST /api/v1/agent-status` | Gilfoyle updates state, `bc_id`, PR URL by task id or idempotency key. New `bc_id` requires an active plan. |
 | Ingest keys | `/settings` | `fg_` bearer tokens. SHA-256 lookup, AES-256-GCM at rest. Shown once. |
-| Sample fleet | board, after plan is active | GitHub parent + follow-up on one PR, a Slack mention, and a chat task left at `blocked:cursor_plan`. Marked `is_sample`. |
+| Sample fleet | `loadSampleFleet` | GitHub parent + follow-up on one PR, a Slack mention, and a chat task left at `blocked:cursor_plan`. Marked `is_sample`. Not exposed on the board. |
 
 ## Roles
 

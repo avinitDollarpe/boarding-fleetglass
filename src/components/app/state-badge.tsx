@@ -1,24 +1,29 @@
+import { boardColumn, boardLabel } from "@/lib/states";
+
 const TONE: Record<string, string> = {
-  Working: "text-primary",
-  "Ready for review": "text-foreground",
-  Blocked: "text-danger",
-  "blocked:cursor_plan": "text-danger",
-  Done: "text-success",
-  Cancelled: "text-muted-foreground",
+  PENDING: "text-muted-foreground",
+  IN_PROGRESS: "text-primary",
+  IN_REVIEW: "text-foreground",
+  BLOCKED: "text-danger",
+  DONE: "text-success",
+  CANCELLED: "text-muted-foreground",
 };
 
 export function StateBadge({ state }: { state: string }) {
+  const column = boardColumn(state);
+  const plan = state === "blocked:cursor_plan";
   return (
-    <span className={`inline-flex min-h-6 items-center rounded-[6px] bg-muted px-1.5 text-xs font-medium ${TONE[state] ?? "text-foreground"}`}>
-      {state}
+    <span className={`inline-flex min-h-6 items-center rounded-[6px] bg-muted px-1.5 text-xs font-medium ${TONE[column] ?? "text-foreground"}`} title={state}>
+      {boardLabel(state)}
+      {plan ? <span className="ms-1 font-normal text-muted-foreground">plan</span> : null}
     </span>
   );
 }
 
 const TRIGGER_LABEL: Record<string, string> = {
-  github_pr_mention: "GitHub mention",
-  slack_bot_mention: "Slack mention",
-  chat_delegate: "Chat delegate",
+  github_pr_mention: "GitHub",
+  slack_bot_mention: "Slack",
+  chat_delegate: "Chat",
 };
 
 export function TriggerLabel({ trigger }: { trigger: string }) {

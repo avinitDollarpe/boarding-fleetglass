@@ -12,7 +12,7 @@ Chief wakes on a mention and hands Gilfoyle the context. Fleetglass writes the t
 2. `slack_bot_mention` — an `app_mention` of a Slack bot that user saved under Settings → Integrations. The connector’s owner allowlist decides who may trigger it. Idempotency is `slack_ts`. `source_ref` is the permalink.
 3. `chat_delegate` — you delegate in chat
 
-An inactive Cursor plan stores the task as `blocked:cursor_plan` and does not launch. The board is a drag-and-drop kanban of those states. Settings → Integrations stores each Slack bot on the signed-in account.
+An inactive Cursor plan stores the task as `blocked:cursor_plan` and does not launch. The board is a six-column kanban: Pending, In progress, In review, Blocked, Done, and Cancelled. Plan-blocked tasks sit in Blocked. The board does not create tasks. Settings → Integrations stores each Slack bot on the signed-in account.
 
 ## Slack Event Subscriptions
 
@@ -60,7 +60,7 @@ The shell shows “Local plan override is on. This banner cannot appear on Verce
 
 Without the override, sign in, open Settings or onboarding, and paste a Cursor user API key from Dashboard → API Keys. Fleetglass checks identity and plan. An unreadable plan is inactive.
 
-After the plan is active, the board can load a sample fleet: a GitHub parent, a follow-up on the same PR, a Slack mention, and a chat task left in `blocked:cursor_plan`.
+A sample fleet can be loaded from `loadSampleFleet` in code: a GitHub parent, a follow-up on the same PR, a Slack mention, and a chat task left in `blocked:cursor_plan`. It is not a board button.
 
 ### App role
 
