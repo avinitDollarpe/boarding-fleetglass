@@ -6,6 +6,7 @@ import {
   KeyboardSensor,
   PointerSensor,
   closestCorners,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
@@ -44,10 +45,10 @@ function initials(owner: string) {
 function CardBody({ task, handle }: { task: BoardCard; handle?: Record<string, unknown> }) {
   const progress = task.subtasks > 0 ? Math.round((task.subtasksDone / task.subtasks) * 100) : 0;
   return (
-    <article className="rounded-[12px] border border-border bg-background p-3 shadow-[0_8px_24px_oklch(0_0_0/0.18)]">
+    <article className="rounded-[8px] bg-background p-3 shadow-[var(--shadow-border)]">
       <div className="flex items-start gap-2">
-        <button type="button" className="press mt-0.5 text-muted-foreground" aria-label={`Move ${task.name}`} {...handle}>
-          <GripVertical className="size-4" />
+        <button type="button" className="press -ms-1 mt-0.5 flex size-11 shrink-0 items-center justify-center text-muted-foreground" aria-label={`Move ${task.name}`} {...handle}>
+          <GripVertical className="size-4" strokeWidth={1.5} />
         </button>
         <div className="min-w-0 flex-1">
           <Link href={`/tasks/${task.id}`} className="block font-medium leading-snug">
@@ -92,7 +93,7 @@ function TaskCard({ task }: { task: BoardCard }) {
 function Column({ state, tasks }: { state: string; tasks: BoardCard[] }) {
   const { setNodeRef, isOver } = useDroppable({ id: state });
   return (
-    <section className={`card flex w-72 shrink-0 flex-col p-3 ${isOver ? "ring-2 ring-primary" : ""}`}>
+    <section className={`column flex w-72 shrink-0 flex-col ${isOver ? "ring-2 ring-primary" : ""}`}>
       <header className="mb-3 flex items-center justify-between gap-2">
         <StateBadge state={state} />
         <span className="num text-sm text-muted-foreground">{tasks.length}</span>
@@ -158,7 +159,15 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={(args) => {
+          const hits = pointerWithin(args);
+          return hits.length > 0 ? hits : closestCorners(args);
+        }}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+      >
         <div className="flex gap-4 overflow-x-auto pb-4 pe-8">
           {STATES.map((state) => (
             <Column key={state} state={state} tasks={items.filter((task) => task.state === state)} />
@@ -176,11 +185,11 @@ export function KanbanBoard({ cards }: { cards: BoardCard[] }) {
         {notice ? (
           <motion.div
             role="status"
-            className="fixed bottom-4 end-4 z-20 max-w-sm rounded-[12px] border border-border bg-card p-3 text-sm shadow-[0_16px_40px_oklch(0_0_0/0.35)]"
+            className="fixed bottom-4 end-4 z-40 max-w-sm rounded-[12px] bg-card p-3 text-sm shadow-[var(--shadow-border)]"
             initial={{ opacity: 0, y: reduce ? 0 : 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: reduce ? 0 : 8 }}
-            transition={{ duration: reduce ? 0 : 0.2, ease: EASE_OUT }}
+            exit={{ opacity: 0, y: reduce ? 0 : -8 }}
+            transition={{ duration: reduce ? 0 : 0.16, ease: EASE_OUT }}
           >
             <p>{notice}</p>
             <button type="button" className="press mt-2 text-sm text-muted-foreground" onClick={() => setNotice(null)}>

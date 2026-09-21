@@ -21,12 +21,12 @@ export function BoardStats({
     { label: "Estimate, 7d", value: costMicros, format: formatUsdFromMicros },
   ];
   return (
-    <dl className="grid gap-3 sm:grid-cols-4">
+    <dl className="flex flex-wrap gap-x-10 gap-y-4 border-b border-border pb-5">
       {tiles.map((tile) => (
-        <div key={tile.label} className="card p-4">
-          <dt className="text-sm text-muted-foreground">{tile.label}</dt>
-          <dd className="num mt-2 text-2xl">
-            <NumberTicker value={tile.value} format={tile.format} startOnView={false} />
+        <div key={tile.label}>
+          <dt className="text-xs text-muted-foreground">{tile.label}</dt>
+          <dd className="num mt-1 text-lg">
+            <NumberTicker value={tile.value} format={tile.format} startOnView={false} duration={0.16} stagger={0} />
           </dd>
         </div>
       ))}

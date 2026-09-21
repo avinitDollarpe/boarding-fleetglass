@@ -16,7 +16,7 @@ export default async function BoardPage() {
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Board</h1>
+          <h1 className="page-title">Board</h1>
           <p className="mt-1 text-sm text-muted-foreground">One fleet. Every trigger Gilfoyle is watching.</p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -37,12 +37,9 @@ export default async function BoardPage() {
         <p className="text-sm text-muted-foreground">Sample fleet is on this board. Token rows sourced as sample are generated locally so the heatmap has a shape.</p>
       ) : null}
       {parents.length === 0 ? (
-        <div className="card flex flex-col gap-3 p-6">
-          <h2 className="text-xl font-medium">Nothing in this fleet yet</h2>
-          <p className="max-w-xl text-sm text-muted-foreground">
-            A Slack mention, a GitHub mention, or a chat delegate lands here before any cloud agent starts. You can also add one by hand.
-          </p>
-        </div>
+        <p className="max-w-xl text-sm text-muted-foreground">
+          Nothing in this fleet yet. A Slack mention, a GitHub mention, or a chat delegate lands here before any cloud agent starts.
+        </p>
       ) : null}
       <form action={addTask} className="card grid gap-3 p-4 md:grid-cols-[1fr_180px_auto] md:items-end">
         <label className="flex flex-col gap-1 text-sm">

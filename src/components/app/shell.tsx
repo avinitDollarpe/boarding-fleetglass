@@ -21,9 +21,9 @@ export function Shell({
   const visible = links.filter((link) => planActive || !link.needsPlan);
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-10 border-b border-border bg-background/85 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-7xl items-center gap-6 px-6 py-3">
-          <Link href={planActive ? "/board" : "/onboarding"} className="text-[15px] font-semibold tracking-tight">
+      <header className="sticky top-0 z-20 border-b border-border bg-background">
+        <div className="mx-auto flex w-full max-w-7xl items-center gap-6 px-6 py-2">
+          <Link href={planActive ? "/board" : "/onboarding"} className="text-[15px] font-medium tracking-tight">
             Fleetglass
           </Link>
           <ShellNav
@@ -40,7 +40,7 @@ export function Shell({
                 await signOut({ redirectTo: "/" });
               }}
             >
-              <button type="submit" className="press btn btn-quiet text-sm">
+              <button type="submit" className="press min-h-11 px-3 text-sm text-muted-foreground">
                 Sign out
               </button>
             </form>

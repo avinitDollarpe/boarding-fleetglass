@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { mintKey, revokeKey } from "@/app/actions";
 import { Shell } from "@/components/app/shell";
-import { TiltCard } from "@/components/motion/tilt-card";
 import { listIngestKeys } from "@/server/keys";
 import { readPlan } from "@/server/plan";
 
@@ -18,14 +17,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     <Shell email={session.user.email} planActive={plan.status === "active"}>
       <div className="flex max-w-2xl flex-col gap-8">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
+          <h1 className="page-title">Settings</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Cursor plan: {plan.status}
             {plan.email ? ` · ${plan.email}` : ""}
             {plan.hint ? ` · key ···${plan.hint}` : ""}
           </p>
         </div>
-        <TiltCard>
         <section className="card flex flex-col gap-3 p-4">
           <h2 className="text-lg font-medium">Ingest key</h2>
           <p className="text-sm text-muted-foreground">Gilfoyle calls the API with this bearer token. It is shown once.</p>
@@ -58,7 +56,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             ))}
           </ul>
         </section>
-        </TiltCard>
         <section className="card flex flex-col gap-3 p-4">
           <h2 className="text-lg font-medium">Integrations</h2>
           <p className="text-sm text-muted-foreground">

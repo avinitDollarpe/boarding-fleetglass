@@ -1,21 +1,59 @@
 @import "tailwindcss";
 
+/* Richard teal #0D9488, used as the single accent. Neutrals carry a trace of that hue. */
 :root {
-  --background: oklch(0.16 0.014 250);
-  --foreground: oklch(0.94 0.012 95);
-  --card: oklch(0.21 0.016 250);
-  --card-foreground: oklch(0.94 0.012 95);
-  --muted: oklch(0.26 0.016 250);
-  --muted-foreground: oklch(0.74 0.02 250);
-  --border: oklch(1 0 0 / 12%);
-  --primary: oklch(0.82 0.11 190);
-  --primary-foreground: oklch(0.18 0.03 200);
-  --accent: oklch(0.82 0.11 190);
-  --ring: oklch(0.82 0.11 190);
+  --background: oklch(0.985 0.004 180);
+  --foreground: oklch(0.27 0.02 180);
+  --card: oklch(0.995 0.002 180);
+  --card-foreground: oklch(0.27 0.02 180);
+  --muted: oklch(0.955 0.006 180);
+  --muted-foreground: oklch(0.42 0.018 180);
+  --border: oklch(0.27 0.02 180 / 0.12);
+  --field: oklch(0.995 0.002 180);
+  --primary: oklch(0.48 0.09 178);
+  --primary-hover: oklch(0.44 0.09 178);
+  --primary-foreground: oklch(0.99 0.004 180);
+  --accent: oklch(0.48 0.09 178);
+  --ring: oklch(0.48 0.09 178);
+  --danger: oklch(0.48 0.14 25);
+  --success: oklch(0.46 0.08 155);
+  --shadow-border:
+    0px 0px 0px 1px oklch(0 0 0 / 0.06),
+    0px 1px 2px -1px oklch(0 0 0 / 0.06),
+    0px 2px 4px 0px oklch(0 0 0 / 0.04);
+  --shadow-border-hover:
+    0px 0px 0px 1px oklch(0 0 0 / 0.08),
+    0px 1px 2px -1px oklch(0 0 0 / 0.08),
+    0px 2px 4px 0px oklch(0 0 0 / 0.06);
   --radius-control: 8px;
+  /* 16px card padding + 8px control radius. */
   --radius-card: 24px;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  color-scheme: dark;
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.16 0.012 180);
+    --foreground: oklch(0.95 0.008 180);
+    --card: oklch(0.2 0.012 180);
+    --card-foreground: oklch(0.95 0.008 180);
+    --muted: oklch(0.24 0.012 180);
+    --muted-foreground: oklch(0.74 0.014 180);
+    --border: oklch(1 0 0 / 0.1);
+    --field: oklch(0.15 0.012 180);
+    --primary: oklch(0.72 0.1 178);
+    --primary-hover: oklch(0.76 0.1 178);
+    --primary-foreground: oklch(0.18 0.03 180);
+    --accent: oklch(0.72 0.1 178);
+    --ring: oklch(0.72 0.1 178);
+    --danger: oklch(0.76 0.12 25);
+    --success: oklch(0.78 0.09 155);
+    --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.08);
+    --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.13);
+    color-scheme: dark;
+  }
 }
 
 @theme inline {
@@ -30,17 +68,23 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-accent: var(--accent);
   --color-ring: var(--ring);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
   --font-sans: var(--font-instrument);
   --font-mono: var(--font-plex);
 }
 
 body {
   min-height: 100vh;
-  background:
-    radial-gradient(900px 420px at 10% -10%, oklch(0.82 0.11 190 / 0.14), transparent 60%),
-    var(--background);
+  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-instrument), sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
 }
 
 .num {
@@ -48,19 +92,26 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 560;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
 .press {
-  transition-property: transform;
-  transition-duration: 160ms;
+  transition-property: scale;
+  transition-duration: 150ms;
   transition-timing-function: var(--ease-out);
 }
 
 .press:active {
-  transform: scale(0.96);
+  scale: 0.96;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .press:active {
-    transform: none;
+    scale: none;
   }
 }
 
@@ -72,10 +123,15 @@ body {
 .card {
   border-radius: var(--radius-card);
   background: var(--card);
-  border: 1px solid var(--border);
-  box-shadow:
-    0 1px 0 oklch(1 0 0 / 4%) inset,
-    0 16px 40px oklch(0 0 0 / 22%);
+  box-shadow: var(--shadow-border);
+}
+
+/* Kanban column: 8px padding + 8px card radius. */
+.column {
+  border-radius: 16px;
+  background: var(--muted);
+  padding: 8px;
+  box-shadow: var(--shadow-border);
 }
 
 .field {
@@ -83,9 +139,16 @@ body {
   width: 100%;
   border-radius: var(--radius-control);
   border: 1px solid var(--border);
-  background: oklch(0.14 0.014 250);
+  background: var(--field);
   padding-inline: 12px;
   color: var(--foreground);
+  transition-property: border-color;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+}
+
+.field:hover {
+  border-color: color-mix(in oklch, var(--foreground) 24%, transparent);
 }
 
 textarea.field {
@@ -99,9 +162,13 @@ textarea.field {
   min-height: 44px;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   border-radius: var(--radius-control);
   padding-inline: 16px;
-  font-weight: 560;
+  font-weight: 500;
+  transition-property: background-color, color, scale;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
 }
 
 .btn-primary {
@@ -109,8 +176,22 @@ textarea.field {
   color: var(--primary-foreground);
 }
 
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
 .btn-quiet {
-  border: 1px solid var(--border);
   background: transparent;
   color: var(--foreground);
+  box-shadow: var(--shadow-border);
+}
+
+.btn-quiet:hover {
+  box-shadow: var(--shadow-border-hover);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn-quiet:hover {
+    background: var(--muted);
+  }
 }

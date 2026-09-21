@@ -246,7 +246,7 @@ export function Tooltip({
             <AnimatePresence>
               {open && coords ? (
                 <span
-                  className="pointer-events-none fixed z-[9999]"
+                  className="pointer-events-none fixed z-50"
                   style={{
                     top: coords.top,
                     left: coords.left,

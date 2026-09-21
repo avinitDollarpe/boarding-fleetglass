@@ -42,7 +42,7 @@ export function Drawer({
           <motion.aside
             role="dialog"
             aria-label={title}
-            className="absolute inset-y-0 start-0 flex w-[min(100%,320px)] flex-col gap-4 border-e border-border bg-card p-4 shadow-[0_16px_40px_oklch(0_0_0/0.35)]"
+            className="absolute inset-y-0 start-0 flex w-[min(100%,320px)] flex-col gap-4 border-e border-border bg-card p-4 shadow-[var(--shadow-border)]"
             initial={{ x: reduce ? 0 : -24, opacity: reduce ? 1 : 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: reduce ? 0 : -24, opacity: reduce ? 1 : 0 }}

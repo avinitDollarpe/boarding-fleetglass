@@ -21,7 +21,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
     <Shell email={session.user.email} planActive={false}>
       <div className="flex max-w-2xl flex-col gap-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold tracking-tight">Cursor plan required</h1>
+          <h1 className="page-title">Cursor plan required</h1>
           <p className="text-muted-foreground">
             Fleetglass launches cloud agents only while the linked Cursor plan is active. Link the API key from Cursor Dashboard → API Keys. We store it encrypted and fail closed if the plan cannot be confirmed.
           </p>
@@ -35,7 +35,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
             Link and verify plan
           </button>
           {query.checked ? (
-            <p className="text-sm text-[oklch(0.78_0.14_25)]">
+            <p className="text-sm text-danger">
               Plan status: {plan.status}
               {plan.reason ? ` (${plan.reason})` : ""}. Tasks that would have launched are marked blocked:cursor_plan.
             </p>

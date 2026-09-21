@@ -31,7 +31,7 @@ export default async function IntegrationsPage({
           <p className="text-sm text-muted-foreground">
             <Link href="/settings">Settings</Link> / Integrations
           </p>
-          <h1 className="text-3xl font-semibold tracking-tight">Integrations</h1>
+          <h1 className="page-title">Integrations</h1>
           <p className="text-sm text-muted-foreground">
             Each Slack bot you own is a connector on this account. The signing secret, bot token, and who may mention it are stored encrypted here, not in deploy env.
           </p>

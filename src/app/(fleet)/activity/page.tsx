@@ -1,6 +1,5 @@
 import { auth } from "@/auth";
 import { HeatPanel } from "@/components/app/heat-panel";
-import { TiltCard } from "@/components/motion/tilt-card";
 import { NumberTicker } from "@/components/motion/number-ticker";
 import { formatUsdFromMicros } from "@/lib/format";
 import { redirect } from "next/navigation";
@@ -16,7 +15,7 @@ export default async function ActivityPage() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Activity</h1>
+        <h1 className="page-title">Activity</h1>
         <p className="mt-1 text-sm text-muted-foreground">Token events over the last 20 weeks, plus cost and tasks marked done.</p>
       </div>
       <section className="card p-4">
@@ -32,25 +31,23 @@ export default async function ActivityPage() {
               <li key={day.day} className="grid grid-cols-[88px_1fr_72px] items-center gap-3 text-sm">
                 <span className="num text-muted-foreground">{day.day.slice(5)}</span>
                 <span className="h-2 rounded-full bg-muted">
-                  <span className="block h-2 rounded-full bg-primary" style={{ width: `${Math.max(4, (day.costMicros / maxCost) * 100)}%` }} />
+                  <span className="block h-2 rounded-full bg-primary/80" style={{ width: `${Math.max(4, (day.costMicros / maxCost) * 100)}%` }} />
                 </span>
                 <span className="num text-end">{formatUsdFromMicros(day.costMicros)}</span>
               </li>
             ))}
           </ul>
         </div>
-        <TiltCard>
-          <div className="card flex flex-col gap-4 p-4">
-            <h2 className="text-sm text-muted-foreground">This week</h2>
-            <p className="num text-3xl">
-              <NumberTicker value={stats.weekTokens} locale />
-            </p>
-            <p className="text-sm text-muted-foreground">input + output tokens</p>
-            <p className="num text-xl">
-              <NumberTicker value={stats.weekDone} /> tasks marked done
-            </p>
-          </div>
-        </TiltCard>
+        <div className="card flex flex-col gap-3 p-4">
+          <h2 className="text-sm text-muted-foreground">This week</h2>
+          <p className="num text-lg">
+            <NumberTicker value={stats.weekTokens} locale duration={0.16} stagger={0} />
+            <span className="ms-2 text-sm font-sans text-muted-foreground">tokens</span>
+          </p>
+          <p className="num text-sm text-muted-foreground">
+            <NumberTicker value={stats.weekDone} duration={0.16} stagger={0} /> marked done
+          </p>
+        </div>
       </section>
     </div>
   );

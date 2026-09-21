@@ -37,7 +37,7 @@ export default async function TaskPage({
           </Link>
         ) : null}
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-3xl font-semibold tracking-tight">{task.name}</h1>
+          <h1 className="page-title">{task.name}</h1>
           <StateBadge state={task.state} />
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
@@ -60,18 +60,18 @@ export default async function TaskPage({
           ) : null}
         </div>
       </div>
-      <dl className="grid gap-3 sm:grid-cols-3">
-        <div className="card p-4">
-          <dt className="text-sm text-muted-foreground">Input</dt>
-          <dd className="num mt-2 text-2xl">{formatTokens(input)}</dd>
+      <dl className="flex flex-wrap gap-x-10 gap-y-4 border-b border-border pb-5">
+        <div>
+          <dt className="text-xs text-muted-foreground">Input</dt>
+          <dd className="num mt-1 text-lg">{formatTokens(input)}</dd>
         </div>
-        <div className="card p-4">
-          <dt className="text-sm text-muted-foreground">Output</dt>
-          <dd className="num mt-2 text-2xl">{formatTokens(output)}</dd>
+        <div>
+          <dt className="text-xs text-muted-foreground">Output</dt>
+          <dd className="num mt-1 text-lg">{formatTokens(output)}</dd>
         </div>
-        <div className="card p-4">
-          <dt className="text-sm text-muted-foreground">Estimate</dt>
-          <dd className="num mt-2 text-2xl">{formatUsdFromMicros(cost)}</dd>
+        <div>
+          <dt className="text-xs text-muted-foreground">Estimate</dt>
+          <dd className="num mt-1 text-lg">{formatUsdFromMicros(cost)}</dd>
         </div>
       </dl>
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
@@ -100,7 +100,7 @@ export default async function TaskPage({
         <form action={launchAgent} className="card grid gap-3 p-4">
           <h2 className="text-lg font-medium">Launch cloud agent</h2>
           <p className="text-sm text-muted-foreground">This checks the Cursor plan again. An inactive plan sets blocked:cursor_plan and does not call Cursor.</p>
-          {query.error ? <p className="text-sm text-[oklch(0.78_0.14_25)]">{query.error}</p> : null}
+          {query.error ? <p className="text-sm text-danger">{query.error}</p> : null}
           <input type="hidden" name="taskId" value={task.id} />
           <label className="flex flex-col gap-1 text-sm">
             Prompt

@@ -17,29 +17,23 @@ const offsetFrom: Record<Side, { x?: number; y?: number }> = {
 };
 
 // Small tooltip surfaces need the lighter spawn used by the original Tooltip.
-const TOOLTIP_SPRING = { type: "spring", stiffness: 380, damping: 30, mass: 0.7 } as const;
+const TOOLTIP_EASE = { duration: 0.14, ease: EASE_OUT } as const;
 
 function buildVariants(side: Side): Variants {
   const o = offsetFrom[side];
   return {
     initial: {
       opacity: 0,
-      scale: 0.9,
-      filter: "blur(5px)",
+      scale: 0.97,
       x: o.x ?? 0,
       y: o.y ?? 0,
     },
     animate: {
       opacity: 1,
       scale: 1,
-      filter: "blur(0px)",
       x: 0,
       y: 0,
-      transition: {
-        ...TOOLTIP_SPRING,
-        opacity: { duration: 0.14, ease: EASE_OUT },
-        filter: { duration: 0.18, ease: EASE_OUT },
-      },
+      transition: TOOLTIP_EASE,
     },
     exit: {
       opacity: 0,
@@ -81,7 +75,11 @@ export function TooltipSurface({
       animate="animate"
       exit="exit"
       className={cn(
-        "block whitespace-nowrap rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-lg",
+        "block whitespace-nowrap rounded-[8px] bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-[var(--shadow-border)]",
+        side === "top" && "origin-bottom",
+        side === "bottom" && "origin-top",
+        side === "left" && "origin-right",
+        side === "right" && "origin-left",
         className,
       )}
       {...props}

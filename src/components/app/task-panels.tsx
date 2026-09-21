@@ -48,7 +48,7 @@ export function TaskPanels({ events, subtasks, usage }: { events: EventRow[]; su
           {subtasks.length === 0 ? <li className="text-sm text-muted-foreground">No subtasks.</li> : null}
           {subtasks.map((task) => (
             <li key={task.id}>
-              <a href={`/tasks/${task.id}`} className="card flex items-center justify-between gap-3 p-3">
+              <a href={`/tasks/${task.id}`} className="flex min-h-11 items-center justify-between gap-3 border-b border-border py-2">
                 <span>{task.name}</span>
                 <StateBadge state={task.state} />
               </a>
