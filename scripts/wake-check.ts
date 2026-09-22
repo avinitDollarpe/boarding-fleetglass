@@ -507,8 +507,9 @@ assert.equal(
   false,
 );
 const askBrief = askCalls.find((call) => call.url === "http://richard.test/wake")?.body as {
-  reply?: { url: string; exp: number; sig: string };
+  reply?: { url: string; channel_id?: string; thread_ts?: string; exp: number; sig: string };
   text?: string;
+  ids?: { slack_ts?: string; channel_id?: string };
 };
 const replyExp = Math.floor(Date.now() / 1000) + 15 * 60;
 assert.equal(askBrief.text, "ship the api");
@@ -517,6 +518,81 @@ assert.ok(askBrief.reply && Math.abs(askBrief.reply.exp - replyExp) <= 2);
 const replySig = (channel: string, thread: string, exp: number, secret: string) =>
   createHmac("sha256", secret).update(JSON.stringify(["v1", channel, thread, exp])).digest("hex");
 assert.equal(askBrief.reply?.sig, replySig("C9", "1710000000.000010", askBrief.reply!.exp, "reply-secret"));
+assert.equal(askBrief.ids?.slack_ts, "1710000000.002200");
+assert.equal(askBrief.reply?.channel_id, "C9");
+assert.equal(askBrief.reply?.thread_ts, "1710000000.000010");
+assert.notEqual(askBrief.reply?.thread_ts, askBrief.ids?.slack_ts);
+
+const guessedThread = await receiveSlackReply(
+  JSON.stringify({
+    text: "guessed message ts",
+    channel_id: askBrief.reply?.channel_id,
+    thread_ts: askBrief.ids?.slack_ts,
+    exp: askBrief.reply?.exp,
+    sig: askBrief.reply?.sig,
+  }),
+);
+assert.equal(guessedThread.status, 401);
+assert.deepEqual(guessedThread.body, { error: "invalid_signature" });
+
+const wrongSecret = await receiveSlackReply(
+  JSON.stringify({
+    text: "wrong secret",
+    channel_id: askBrief.reply?.channel_id,
+    thread_ts: askBrief.reply?.thread_ts,
+    exp: askBrief.reply?.exp,
+    sig: replySig("C9", askBrief.reply!.thread_ts!, askBrief.reply!.exp, "other-secret"),
+  }),
+);
+assert.equal(wrongSecret.status, 401);
+assert.deepEqual(wrongSecret.body, { error: "invalid_signature" });
+
+const granted = await receiveSlackReply(
+  JSON.stringify({
+    text: "from grant",
+    channel_id: askBrief.reply?.channel_id,
+    thread_ts: askBrief.reply?.thread_ts,
+    exp: askBrief.reply?.exp,
+    sig: askBrief.reply?.sig,
+  }),
+);
+assert.deepEqual(granted, { status: 200, body: { ok: true, posted: true } });
+assert.deepEqual(calls.at(-1)?.body, {
+  channel: "C9",
+  text: "from grant",
+  thread_ts: "1710000000.000010",
+});
+
+const beforeTopLevel = calls.length;
+const topLevel = await postMention({
+  text: "top level ask",
+  ts: "1710000000.002210",
+  event_id: "EvTop",
+});
+assert.deepEqual(topLevel.body, { ok: true, woke: true, deduped: false });
+const topBrief = calls.slice(beforeTopLevel).find((call) => call.url === "http://richard.test/wake")?.body as {
+  reply?: { channel_id?: string; thread_ts?: string; exp: number; sig: string };
+  ids?: { slack_ts?: string };
+};
+assert.equal(topBrief.ids?.slack_ts, "1710000000.002210");
+assert.equal(topBrief.reply?.channel_id, "C9");
+assert.equal(topBrief.reply?.thread_ts, "1710000000.002210");
+assert.equal(topBrief.reply?.sig, replySig("C9", "1710000000.002210", topBrief.reply!.exp, "reply-secret"));
+const topPosted = await receiveSlackReply(
+  JSON.stringify({
+    text: "top reply",
+    channel_id: topBrief.reply?.channel_id,
+    thread_ts: topBrief.reply?.thread_ts,
+    exp: topBrief.reply?.exp,
+    sig: topBrief.reply?.sig,
+  }),
+);
+assert.deepEqual(topPosted, { status: 200, body: { ok: true, posted: true } });
+assert.deepEqual(calls.at(-1)?.body, {
+  channel: "C9",
+  text: "top reply",
+  thread_ts: "1710000000.002210",
+});
 
 delete process.env.FLEETGLASS_PUBLIC_URL;
 process.env.VERCEL_URL = "fleetglass-abc.vercel.app";
@@ -661,7 +737,7 @@ const ghNoReplyWake = await receiveGithubWebhook(ghNoReplyRaw, githubSig(ghNoRep
 assert.deepEqual(ghNoReplyWake.body, { ok: true, woke: true, deduped: false });
 assert.equal("reply" in ((calls.at(-1)?.body as object) ?? {}), false);
 
-const thread = "1710000000.000010";
+const thread = "1710000000.000011";
 const liveExp = Math.floor(Date.now() / 1000) + 900;
 const liveSig = replySig("C9", thread, liveExp, "reply-secret");
 const liveBody = JSON.stringify({ text: "shipped", channel_id: "C9", thread_ts: thread, exp: liveExp, sig: liveSig });

@@ -1,4 +1,5 @@
 import pg from "pg";
+import type { SlackReplyGrant } from "@/lib/slack-reply";
 
 /** One brief for Richard. Slack and GitHub both use this shape. */
 export type RichardBrief =
@@ -14,11 +15,7 @@ export type RichardBrief =
         team_id: string;
         channel_id: string;
       };
-      reply?: {
-        url: string;
-        exp: number;
-        sig: string;
-      };
+      reply?: SlackReplyGrant;
     }
   | {
       type: "fleetglass.wake";

@@ -5,6 +5,8 @@ export const SLACK_REPLY_TTL_SEC = 15 * 60;
 
 export type SlackReplyGrant = {
   url: string;
+  channel_id: string;
+  thread_ts: string;
   exp: number;
   sig: string;
 };
@@ -63,6 +65,8 @@ export function mintSlackReply(channelId: string, threadTs: string, nowSec = Dat
   const exp = Math.floor(nowSec) + SLACK_REPLY_TTL_SEC;
   return {
     url: `${base}/api/slack/reply`,
+    channel_id: channelId,
+    thread_ts: threadTs,
     exp,
     sig: signSlackReply(channelId, threadTs, exp, secret),
   };

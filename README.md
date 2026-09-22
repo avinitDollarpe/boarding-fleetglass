@@ -49,13 +49,15 @@ A Slack brief can also include `reply` when `FLEETGLASS_PUBLIC_URL` is a host Ri
 {
   "reply": {
     "url": "https://fleetglass.example/api/slack/reply",
+    "channel_id": "C9",
+    "thread_ts": "1710000001.000010",
     "exp": 1710001801,
     "sig": "<hmac sha256 hex>"
   }
 }
 ```
 
-`exp` is a Unix second, 15 minutes ahead. `sig` is HMAC-SHA256 hex of `JSON.stringify(["v1", channel_id, thread_ts, exp])`. The routine that receives the brief POSTs `{ "text", "channel_id", "thread_ts", "exp", "sig" }` to `reply.url`, using the channel, thread, exp, and sig from the brief. That routine must POST the reply to Fleetglass. It must not use a Slack connector. Fleetglass then calls `chat.postMessage` with `SLACK_BOT_TOKEN`.
+`exp` is a Unix second, 15 minutes ahead. `sig` is HMAC-SHA256 hex of `JSON.stringify(["v1", channel_id, thread_ts, exp])`, using `reply.channel_id` and `reply.thread_ts`. The routine that receives the brief POSTs `{ "text", "channel_id", "thread_ts", "exp", "sig" }` to `reply.url`, copying `channel_id`, `thread_ts`, `exp`, and `sig` from `reply`. `reply.thread_ts` is the parent thread when the mention is already in a thread, and the mention timestamp when it is not. `ids.slack_ts` is the mention timestamp. That routine must POST the reply to Fleetglass. It must not use a Slack connector. Fleetglass then calls `chat.postMessage` with `SLACK_BOT_TOKEN`.
 
 | Response from Fleetglass | Meaning |
 | --- | --- |
