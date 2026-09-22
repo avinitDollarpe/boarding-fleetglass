@@ -737,7 +737,7 @@ const ghNoReplyWake = await receiveGithubWebhook(ghNoReplyRaw, githubSig(ghNoRep
 assert.deepEqual(ghNoReplyWake.body, { ok: true, woke: true, deduped: false });
 assert.equal("reply" in ((calls.at(-1)?.body as object) ?? {}), false);
 
-const thread = "1710000000.000010";
+const thread = "1710000000.000011";
 const liveExp = Math.floor(Date.now() / 1000) + 900;
 const liveSig = replySig("C9", thread, liveExp, "reply-secret");
 const liveBody = JSON.stringify({ text: "shipped", channel_id: "C9", thread_ts: thread, exp: liveExp, sig: liveSig });

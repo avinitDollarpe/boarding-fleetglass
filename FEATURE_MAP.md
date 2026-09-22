@@ -70,6 +70,8 @@ Slack brief:
   },
   "reply": {
     "url": "https://fleetglass.example/api/slack/reply",
+    "channel_id": "C9",
+    "thread_ts": "1710000001.000010",
     "exp": 1710001801,
     "sig": "<hmac sha256 hex>"
   }
@@ -102,7 +104,7 @@ GitHub brief:
 
 `reply` is present only on a Slack brief, and only when `FLEETGLASS_PUBLIC_URL` and `FLEETGLASS_REPLY_SECRET` are both set. The base is that URL with no trailing slash. `VERCEL_URL` is not a reply base. The HMAC key is only `FLEETGLASS_REPLY_SECRET`. `SLACK_SIGNING_SECRET` does not sign or verify `reply`. Mint and verify call `slackReplySecret()`. `exp` is a Unix second, 15 minutes ahead. `sig` is HMAC-SHA256 hex over `JSON.stringify(["v1", channel_id, thread_ts, exp])`. The text of the later reply is not inside the HMAC. GitHub briefs omit `reply`. Fleetglass omits `reply` when the public URL is unset, the reply secret is unset, the base is not http(s), the host is localhost, or the host is `*-git-*.vercel.app`. The wake still runs. Set one `FLEETGLASS_REPLY_SECRET` on Production and redeploy. Do not rotate it without redeploying. The routine must POST `reply.url`. It must not use a Slack connector.
 
-Richard's routine posts the final Slack message to `reply.url`. It must not use a Slack connector. The body is `{ "text", "channel_id", "thread_ts", "exp", "sig" }` with the `channel_id`, `thread_ts`, `exp`, and `sig` from the brief. Fleetglass checks the HMAC, rejects an expired `exp`, and rejects a signature it has already accepted in this process. On success it calls `chat.postMessage` with the bot token in that thread only. A different channel or thread does not match the signature.
+Richard's routine posts the final Slack message to `reply.url`. It must not use a Slack connector. The body is `{ "text", "channel_id", "thread_ts", "exp", "sig" }`. Copy `channel_id`, `thread_ts`, `exp`, and `sig` from `reply`. Those two target fields are the strings inside the HMAC. `reply.thread_ts` is the parent thread when the mention is already in a thread, and the mention timestamp when it is not. `ids.slack_ts` is always the mention timestamp. Posting `ids.slack_ts` as `thread_ts` fails the HMAC whenever those values differ. Fleetglass checks the HMAC, rejects an expired `exp`, and rejects a signature it has already accepted in this process. On success it calls `chat.postMessage` with the bot token in that thread only. A different channel or thread does not match the signature. A post that copies `reply.channel_id`, `reply.thread_ts`, `reply.exp`, and `reply.sig` and still returns `invalid_signature` means `FLEETGLASS_REPLY_SECRET` at verify does not match the secret that minted `sig`.
 
 | Reply response | When |
 | --- | --- |
