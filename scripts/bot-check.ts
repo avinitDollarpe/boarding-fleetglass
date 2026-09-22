@@ -50,6 +50,22 @@ const allowed = parseSlackEvent({
   event: { type: "app_mention", user: "U08C40K4FHN", text: "ship it", ts: "1.2", channel: "C1" },
 });
 assert.equal(allowed.action, "ingest");
+if (allowed.action === "ingest") assert.equal(allowed.threadTs, "1.2");
+const threaded = parseSlackEvent({
+  type: "event_callback",
+  team_id: "T1",
+  event_id: "Ev2",
+  event: {
+    type: "app_mention",
+    user: "U08C40K4FHN",
+    text: "ship it",
+    ts: "2.2",
+    thread_ts: "1.1",
+    channel: "C1",
+  },
+});
+assert.equal(threaded.action, "ingest");
+if (threaded.action === "ingest") assert.equal(threaded.threadTs, "1.1");
 assert.equal(ownerMayTrigger("U08C40K4FHN", null, { userIds: ["U08C40K4FHN"], emails: [] }), true);
 assert.equal(ownerMayTrigger("U000", "owner@example.com", { userIds: [], emails: ["owner@example.com"] }), true);
 assert.equal(ownerMayTrigger("U000", null, { userIds: ["U08C40K4FHN"], emails: [] }), false);
