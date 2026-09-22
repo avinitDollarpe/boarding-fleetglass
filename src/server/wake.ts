@@ -84,6 +84,7 @@ async function release(key: string) {
 
 /**
  * POST `CHIEF_HANDOFF_URL` with the brief.
+ * `CHIEF_HANDOFF_AUTHORIZATION`, when set, is sent as the Authorization header unchanged.
  * A repeated idempotency key does not POST again.
  * ponytail: process Set plus wake_keys. A crash after the claim and before a failed release can drop one retry if a second delivery already lost the race.
  */
@@ -94,10 +95,14 @@ export async function deliverRichardWake(brief: RichardBrief, idempotencyKey: st
   const claimed = await claim(idempotencyKey, brief.source);
   if (claimed === "dup") return { ok: true, woke: false, deduped: true };
 
+  const authorization = process.env.CHIEF_HANDOFF_AUTHORIZATION?.trim();
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(authorization ? { Authorization: authorization } : {}),
+      },
       body: JSON.stringify(brief),
       signal: AbortSignal.timeout(8000),
     });
