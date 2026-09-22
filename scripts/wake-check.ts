@@ -535,12 +535,17 @@ delete process.env.VERCEL_URL;
 
 delete process.env.FLEETGLASS_REPLY_SECRET;
 process.env.FLEETGLASS_PUBLIC_URL = "https://fleetglass.example";
-const fallbackAsk = await postMention({ text: "secret fallback", ts: "1710000000.002400", thread_ts: "1710000000.000010" });
-const fallbackBrief = calls.at(-1)?.body as { reply?: { sig: string; exp: number } };
-assert.equal(
-  fallbackBrief.reply?.sig,
-  replySig("C9", "1710000000.000010", fallbackBrief.reply!.exp, slackSecret),
-);
+const beforeSecret = calls.length;
+const secretAsk = await postMention({ text: "secret fallback", ts: "1710000000.002400", thread_ts: "1710000000.000010" });
+assert.deepEqual(secretAsk.body, { ok: true, woke: true, deduped: false });
+const secretSlice = calls.slice(beforeSecret);
+const secretBrief = secretSlice.find((call) => call.url === "http://richard.test/wake")?.body as { reply?: unknown };
+assert.equal(secretBrief.reply, undefined);
+assert.deepEqual(secretSlice.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.000010",
+  status: "",
+});
 process.env.FLEETGLASS_REPLY_SECRET = "reply-secret";
 
 delete process.env.FLEETGLASS_PUBLIC_URL;
