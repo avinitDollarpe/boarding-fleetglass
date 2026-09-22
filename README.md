@@ -59,6 +59,26 @@ A Slack brief can also include `reply` when `FLEETGLASS_PUBLIC_URL` is a host Ri
 
 `exp` is a Unix second, 15 minutes ahead. `sig` is HMAC-SHA256 hex of `JSON.stringify(["v1", channel_id, thread_ts, exp])`, using `reply.channel_id` and `reply.thread_ts`. The routine that receives the brief POSTs `{ "text", "channel_id", "thread_ts", "exp", "sig" }` to `reply.url`, copying `channel_id`, `thread_ts`, `exp`, and `sig` from `reply`. `reply.thread_ts` is the parent thread when the mention is already in a thread, and the mention timestamp when it is not. `ids.slack_ts` is the mention timestamp. That routine must POST the reply to Fleetglass. It must not use a Slack connector. Fleetglass then calls `chat.postMessage` with `SLACK_BOT_TOKEN`.
 
+### Post into a known thread
+
+Richard can post without an `@Richard` wake. Hold `FLEETGLASS_REPLY_SECRET` (the same value Fleetglass uses). Do not copy `SLACK_BOT_TOKEN` or `SLACK_SIGNING_SECRET`.
+
+1. Set `exp` to the current Unix second plus 900. Fleetglass rejects an `exp` in the past, and an `exp` more than 960 seconds ahead.
+2. Set `sig` to HMAC-SHA256 hex of `JSON.stringify(["v1", channel_id, thread_ts, exp])` using `FLEETGLASS_REPLY_SECRET`. The message text is not part of the HMAC.
+3. `POST` `https://<FLEETGLASS_PUBLIC_URL>/api/slack/reply` with `Content-Type: application/json` and no Authorization header.
+
+```json
+{
+  "text": "CE-19 is green",
+  "channel_id": "C09DTUTJ1CP",
+  "thread_ts": "1789001537.017619",
+  "exp": 1710001801,
+  "sig": "<hmac sha256 hex>"
+}
+```
+
+A 200 body is `{ "ok": true, "posted": true }`. Slack shows the Richard app. Each signature works once until it expires. Mint a new `exp` and `sig` for the next post.
+
 | Response from Fleetglass | Meaning |
 | --- | --- |
 | 200 `{ "ok": true, "woke": true, "deduped": false }` | Richard returned 2xx |
@@ -85,6 +105,29 @@ A missing signing secret is 503. A bad signature is 401.
 After the owner and bot checks, a mention whose text is exactly `ping` (mention tokens stripped, any case) is answered in Slack. Fleetglass sets the thinking status, then posts `pong` with `chat.postMessage` as the Richard bot. It does not call `CHIEF_HANDOFF_URL`. The event returns 200 `{ "ok": true, "woke": false, "answered": "pong" }`. If the post throws or Slack returns `ok: false`, Fleetglass clears the status with an empty `assistant.threads.setStatus` (or an empty `agents.sessions.setStatus` when that fallback was used) and still returns 200.
 
 Any other mention still wakes Richard. The visible reply for that ask is the signed callback above, posted by the Richard bot. A successful bot message clears the Slack status. If the wake succeeds and Richard cannot call `reply.url`, Fleetglass clears the status itself. Set `FLEETGLASS_PUBLIC_URL` to the production origin so real replies still post. Fleetglass does not set `username`, `icon_emoji`, `icon_url`, or `as_user`.
+
+### Watch a thread
+
+A mention whose text, after mention tokens are stripped, is a watch phrase still wakes Richard. Phrases include `watch this thread`, `watch the thread`, `watch this`, `keep this thread updated`, `keep this thread up to date`, `keep this updated`, `keep me updated`, `keep me updated on this thread`, and `follow this thread`. `please`, `can you`, or `could you` may lead the phrase.
+
+Fleetglass reads `CE-<digits>`, `https://github.com/<owner>/<repo>/pull/<n>`, and `<owner>/<repo>#<n>` from that mention. It does not read the rest of the thread. It stores the channel, the thread, those refs, and the Slack user id. With `DATABASE_URL`, the row is `thread_watches` (`drizzle/0005_thread_watches.sql`). Without it, the process keeps the row in memory.
+
+The brief includes `watch`:
+
+```json
+{
+  "watch": {
+    "channel_id": "C09DTUTJ1CP",
+    "thread_ts": "1789001537.017619",
+    "refs": ["CE-19", "DollarPe-Infra/fleetglass#7"],
+    "owner_id": "U08C40K4FHN",
+    "created_at": "2026-09-22T08:00:00.000Z",
+    "ack": "Watching this thread for CE-19, DollarPe-Infra/fleetglass#7. Updates land here on material change."
+  }
+}
+```
+
+Post `watch.ack` with the wake `reply` fields (`channel_id`, `thread_ts`, `exp`, `sig`) to `reply.url`. That is the in-thread ack. Fleetglass does not post it. If the brief has no `reply`, sign that same ack text as in "Post into a known thread". For a later status change, sign a new body the same way and use the stored `channel_id` and `thread_ts`.
 
 ### Slack app
 
@@ -122,8 +165,8 @@ The idempotency key is `github_comment:{comment_id}`.
 | `SLACK_BOT_USER_ID` | No | Bot id check |
 | `GITHUB_WEBHOOK_SECRET` | For GitHub | Request signature |
 | `GITHUB_APP_SLUG` | No | Extra mention login |
-| `DATABASE_URL` | No | Dedupe across processes via `wake_keys` |
-| `DATABASE_URL_MIGRATE` | To create the table | Runs `npm run migrate` |
+| `DATABASE_URL` | No | `wake_keys` dedupe and `thread_watches` across processes |
+| `DATABASE_URL_MIGRATE` | To create the tables | Runs `npm run migrate` |
 
 ## Local
 
@@ -136,7 +179,7 @@ npm run dev
 
 `GET /api/health` returns `{ "ok": true }`.
 
-`npm run migrate` applies `drizzle/`, including `wake_keys`. Without `DATABASE_URL`, a single process still drops duplicate deliveries. Set the URL in production.
+`npm run migrate` applies `drizzle/`, including `wake_keys` and `thread_watches`. Without `DATABASE_URL`, a single process still drops duplicate deliveries and still keeps thread watches in memory. Set the URL in production.
 
 Docker Compose runs Postgres 16 and the app:
 

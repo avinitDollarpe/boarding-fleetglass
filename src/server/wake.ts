@@ -1,5 +1,6 @@
-import pg from "pg";
 import type { SlackReplyGrant } from "@/lib/slack-reply";
+import type { SlackWatchBrief } from "@/lib/thread-watch";
+import { db } from "@/server/db";
 
 /** One brief for Richard. Slack and GitHub both use this shape. */
 export type RichardBrief =
@@ -16,6 +17,7 @@ export type RichardBrief =
         channel_id: string;
       };
       reply?: SlackReplyGrant;
+      watch?: SlackWatchBrief;
     }
   | {
       type: "fleetglass.wake";
@@ -37,14 +39,6 @@ export type WakeDelivery =
   | { ok: false; error: "wake_failed" };
 
 const memory = new Set<string>();
-let pool: pg.Pool | null = null;
-
-function db(): pg.Pool | null {
-  const url = process.env.DATABASE_URL?.trim();
-  if (!url) return null;
-  if (!pool) pool = new pg.Pool({ connectionString: url, max: 3 });
-  return pool;
-}
 
 async function claimDb(key: string, source: string): Promise<"new" | "dup" | "off"> {
   const client = db();

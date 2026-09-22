@@ -81,6 +81,10 @@ Default mention user is `U08C40K4FHN`. Optional `SLACK_BOT_USER_ID` must be one 
 
 Other Slack mentions still wake Richard. When `FLEETGLASS_PUBLIC_URL` is a host Richard can POST and `FLEETGLASS_REPLY_SECRET` is set, the Slack brief includes `reply` (`url`, `channel_id`, `thread_ts`, `exp`, `sig`). The routine POSTs `reply.channel_id`, `reply.thread_ts`, `reply.exp`, and `reply.sig` to `reply.url`. `VERCEL_URL` does not mint `reply`. `SLACK_SIGNING_SECRET` does not sign `reply`. Mint and verify both use `slackReplySecret()`. `POST /api/slack/reply` checks that HMAC and posts with the bot token. The routine must POST there. It must not use a Slack connector. GitHub briefs have no `reply`. An unset public URL, a missing reply secret, localhost, or a `*-git-*.vercel.app` host omits `reply` and still wakes. After that wake succeeds, Fleetglass clears assistant status. A usable `reply.url` stays up until the bot posts.
 
+The same route accepts a proactive post. A caller who holds `FLEETGLASS_REPLY_SECRET` signs `JSON.stringify(["v1", channel_id, thread_ts, exp])` and POSTs `{ "text", "channel_id", "thread_ts", "exp", "sig" }` with no Authorization header. `exp` must be within 15 minutes plus 60 seconds. No wake is required. `proactiveSlackReply` builds that body. The bot token stays on Fleetglass.
+
+A mention that is a watch phrase (`watch this thread`, `keep this thread updated`, and the close phrases in `FEATURE_MAP.md`) still wakes. Fleetglass stores the channel, thread, `CE-##` and `owner/repo#n` refs from that text, and the mentioner. The brief adds `watch` with `ack`. Richard posts `watch.ack` through `reply`. Fleetglass does not post the ack itself. Later posts to that thread use the proactive signature. Postgres table `thread_watches` when `DATABASE_URL` is set. Otherwise the binding stays in process memory.
+
 ## GitHub
 
 `POST /api/github/webhook` with `X-Hub-Signature-256` and `GITHUB_WEBHOOK_SECRET`.
@@ -103,8 +107,8 @@ Unset secret is 503 `github_unconfigured`. A bad signature is 401 `invalid_signa
 | `GITHUB_APP_SLUG` | Extra mention target. |
 | `CHIEF_HANDOFF_URL` | Richard wake URL. Routine panel Webhook URL. Required to actually wake. |
 | `CHIEF_HANDOFF_AUTHORIZATION` | Optional. Full Authorization header from routine `fleetglass-slack-chief-webhook`. |
-| `DATABASE_URL` | Optional. Enables `wake_keys` dedupe across processes. |
-| `DATABASE_URL_MIGRATE` | Role that can create `wake_keys`. |
+| `DATABASE_URL` | Optional. Enables `wake_keys` dedupe and `thread_watches` across processes. |
+| `DATABASE_URL_MIGRATE` | Role that can create `wake_keys` and `thread_watches`. |
 
 ## Out of scope
 

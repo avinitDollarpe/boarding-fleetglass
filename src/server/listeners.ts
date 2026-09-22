@@ -9,6 +9,8 @@ import {
   slackReplyCallbackCanLand,
   verifySlackReplyRequest,
 } from "@/lib/slack-reply";
+import { parseThreadWatchAsk, toSlackWatchBrief } from "@/lib/thread-watch";
+import { saveThreadWatch } from "@/server/watches";
 import { deliverRichardWake, type RichardBrief, type WakeDelivery } from "@/server/wake";
 
 function safeEqual(a: string, b: string): boolean {
@@ -183,6 +185,15 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
 
   const token = process.env.SLACK_BOT_TOKEN?.trim() || "";
   if (isExactSlackPing(decision.text)) return answerSlackPing(token, decision.channel, decision.threadTs);
+  const watchAsk = parseThreadWatchAsk(decision.text);
+  const savedWatch = watchAsk
+    ? await saveThreadWatch({
+        channelId: decision.channel,
+        threadTs: decision.threadTs,
+        refs: watchAsk.refs,
+        ownerId: decision.user,
+      })
+    : null;
   const reply = mintSlackReply(decision.channel, decision.threadTs);
   const callbackCanLand = reply !== null && slackReplyCallbackCanLand();
   const thinking = token ? postSlackThinking(token, decision.channel, decision.threadTs) : null;
@@ -222,6 +233,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
       channel_id: decision.channel,
     },
     ...(reply ? { reply } : {}),
+    ...(savedWatch ? { watch: toSlackWatchBrief(savedWatch) } : {}),
   };
   const delivery = await deliverRichardWake(brief, intake.value.idempotencyKey);
   if (thinking && !callbackCanLand && delivery.ok && delivery.woke) {

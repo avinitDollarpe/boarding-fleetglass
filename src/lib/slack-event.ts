@@ -54,10 +54,13 @@ export type SlackRouteHint = {
 
 const SLACK_MENTION_TOKEN = /<(?:@[A-Z0-9]+|![^>\n]+)(?:\|[^>\n]*)?>/gi;
 
+export function stripSlackMentions(text: string): string {
+  return text.replace(SLACK_MENTION_TOKEN, " ").replace(/\s+/g, " ").trim();
+}
+
 /** True when the mention, with Slack mention tokens removed, is exactly `ping`. */
 export function isExactSlackPing(text: string): boolean {
-  const stripped = text.replace(SLACK_MENTION_TOKEN, " ").replace(/\s+/g, " ").trim();
-  return stripped.toLowerCase() === "ping";
+  return stripSlackMentions(text).toLowerCase() === "ping";
 }
 
 export function slackRouteHint(payload: SlackEventBody): SlackRouteHint | null {
