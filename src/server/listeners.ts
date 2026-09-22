@@ -2,7 +2,13 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { githubMentioned, githubMentionTargets, githubRepoInScope, SLACK_MENTION_USER_DEFAULT } from "@/lib/bots";
 import { normalizeIntake } from "@/lib/intake";
 import { isExactSlackPing, parseSlackEvent, verifySlackSignature, type SlackEventBody } from "@/lib/slack-event";
-import { claimSlackReply, mintSlackReply, releaseSlackReply, verifySlackReplyRequest } from "@/lib/slack-reply";
+import {
+  claimSlackReply,
+  mintSlackReply,
+  releaseSlackReply,
+  slackReplyCallbackCanLand,
+  verifySlackReplyRequest,
+} from "@/lib/slack-reply";
 import { deliverRichardWake, type RichardBrief, type WakeDelivery } from "@/server/wake";
 
 function safeEqual(a: string, b: string): boolean {
@@ -178,7 +184,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
   const token = process.env.SLACK_BOT_TOKEN?.trim() || "";
   if (isExactSlackPing(decision.text)) return answerSlackPing(token, decision.channel, decision.threadTs);
   const reply = mintSlackReply(decision.channel, decision.threadTs);
-  const callbackCanLand = reply !== null;
+  const callbackCanLand = reply !== null && slackReplyCallbackCanLand();
   const thinking = token ? postSlackThinking(token, decision.channel, decision.threadTs) : null;
   if (thinking && callbackCanLand) void thinking;
   const permalink = token

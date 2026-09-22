@@ -43,7 +43,7 @@ GitHub example:
 
 `source` is `slack` or `github`. `text` is the mention or the comment. `url` is the Slack permalink or the PR URL. `author` is the Slack user id or the GitHub login. `ids` holds the raw ids.
 
-A Slack brief can also include `reply` when `FLEETGLASS_PUBLIC_URL` is a host Richard can POST and a reply secret exists. The secret is `FLEETGLASS_REPLY_SECRET`, or `SLACK_SIGNING_SECRET` when the reply secret is unset. `VERCEL_URL` does not mint `reply`. If the public URL is unset, localhost, or a `*-git-*.vercel.app` host, the wake still runs and `reply` is omitted.
+A Slack brief can also include `reply` when `FLEETGLASS_PUBLIC_URL` is a host Richard can POST and `FLEETGLASS_REPLY_SECRET` is set. Mint and verify use that one secret. `SLACK_SIGNING_SECRET` does not sign `reply`. `VERCEL_URL` does not mint `reply`. If the public URL or the reply secret is unset, or the host is localhost or `*-git-*.vercel.app`, the wake still runs and `reply` is omitted.
 
 ```json
 {
@@ -116,7 +116,7 @@ The idempotency key is `github_comment:{comment_id}`.
 | `SLACK_MENTION_USER_ID` | No | Default `U08C40K4FHN` |
 | `SLACK_BOT_TOKEN` | No | Permalink, thinking status, and `chat.postMessage` |
 | `FLEETGLASS_PUBLIC_URL` | No | Only base URL for `reply.url`. `VERCEL_URL` is not used. |
-| `FLEETGLASS_REPLY_SECRET` | No | HMAC key for `POST /api/slack/reply`. Else `SLACK_SIGNING_SECRET`. |
+| `FLEETGLASS_REPLY_SECRET` | For replies | Only HMAC key for mint and `POST /api/slack/reply`. No signing-secret fallback. |
 | `SLACK_BOT_USER_ID` | No | Bot id check |
 | `GITHUB_WEBHOOK_SECRET` | For GitHub | Request signature |
 | `GITHUB_APP_SLUG` | No | Extra mention login |
@@ -161,7 +161,7 @@ npm run build
 
 Production is Vercel plus managed Postgres. Set the env table above and run `npm run migrate` with `DATABASE_URL_MIGRATE`. Point the Slack app at `https://<host>/api/slack/events` and the GitHub webhook at `https://<host>/api/github/webhook`.
 
-For bot replies on Vercel, set `SLACK_BOT_TOKEN` to the reinstalled bot token and set `FLEETGLASS_PUBLIC_URL` to `https://boarding-fleetglass.vercel.app` with no trailing slash. `VERCEL_URL` is not a reply host. Set `FLEETGLASS_REPLY_SECRET` to a long random string, or leave it unset to sign replies with `SLACK_SIGNING_SECRET`. Reinstall the Slack app after adding `chat:write`, then invite the bot to the channel.
+For bot replies on Vercel, set `SLACK_BOT_TOKEN` to the reinstalled bot token, set `FLEETGLASS_PUBLIC_URL` to `https://boarding-fleetglass.vercel.app` with no trailing slash, and set one `FLEETGLASS_REPLY_SECRET`. Redeploy after either value changes. `VERCEL_URL` is not a reply host. `SLACK_SIGNING_SECRET` does not sign replies. The Richard routine must POST `reply.url`. It must not use a Cursor Slack connector. Reinstall the Slack app after adding `chat:write`, then invite the bot to the channel.
 
 `output: "standalone"` is for the Docker image. Vercel builds Next.js itself.
 

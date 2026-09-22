@@ -37,9 +37,15 @@ function replyHostCanLand(base: string): boolean {
   return true;
 }
 
-/** `FLEETGLASS_REPLY_SECRET` when set. Otherwise `SLACK_SIGNING_SECRET`. */
+/** Richard can POST this base. Missing, localhost, and preview hosts cannot. */
+export function slackReplyCallbackCanLand(base: string | null = fleetglassPublicBase()): boolean {
+  if (!base) return false;
+  return replyHostCanLand(base);
+}
+
+/** Reply HMAC key. Mint and verify both use this. No signing-secret fallback. */
 export function slackReplySecret(): string {
-  return process.env.FLEETGLASS_REPLY_SECRET?.trim() || process.env.SLACK_SIGNING_SECRET?.trim() || "";
+  return process.env.FLEETGLASS_REPLY_SECRET?.trim() || "";
 }
 
 export function slackReplyCanonical(channelId: string, threadTs: string, exp: number): string {
@@ -53,7 +59,7 @@ export function signSlackReply(channelId: string, threadTs: string, exp: number,
 export function mintSlackReply(channelId: string, threadTs: string, nowSec = Date.now() / 1000): SlackReplyGrant | null {
   const base = fleetglassPublicBase();
   const secret = slackReplySecret();
-  if (!base || !replyHostCanLand(base) || !secret || !channelId || !threadTs) return null;
+  if (!base || !slackReplyCallbackCanLand(base) || !secret || !channelId || !threadTs) return null;
   const exp = Math.floor(nowSec) + SLACK_REPLY_TTL_SEC;
   return {
     url: `${base}/api/slack/reply`,
