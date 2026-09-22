@@ -3,6 +3,16 @@ import { createHmac, timingSafeEqual } from "crypto";
 /** Reply links last 15 minutes. */
 export const SLACK_REPLY_TTL_SEC = 15 * 60;
 
+export const SLACK_REPLY_SKEW_SEC = 60;
+
+export type ProactiveSlackReply = {
+  text: string;
+  channel_id: string;
+  thread_ts: string;
+  exp: number;
+  sig: string;
+};
+
 export type SlackReplyGrant = {
   url: string;
   channel_id: string;
@@ -58,6 +68,27 @@ export function signSlackReply(channelId: string, threadTs: string, exp: number,
   return createHmac("sha256", secret).update(slackReplyCanonical(channelId, threadTs, exp)).digest("hex");
 }
 
+export function proactiveSlackReply(
+  channelId: string,
+  threadTs: string,
+  text: string,
+  secret: string,
+  nowSec = Date.now() / 1000,
+): ProactiveSlackReply | null {
+  const trimmed = text.trim();
+  const channel = channelId.trim();
+  const thread = threadTs.trim();
+  if (!secret || !channel || !thread || !trimmed) return null;
+  const exp = Math.floor(nowSec) + SLACK_REPLY_TTL_SEC;
+  return {
+    text: trimmed,
+    channel_id: channel,
+    thread_ts: thread,
+    exp,
+    sig: signSlackReply(channel, thread, exp, secret),
+  };
+}
+
 export function mintSlackReply(channelId: string, threadTs: string, nowSec = Date.now() / 1000): SlackReplyGrant | null {
   const base = fleetglassPublicBase();
   const secret = slackReplySecret();
@@ -107,6 +138,9 @@ export function verifySlackReplyRequest(body: unknown, nowSec = Date.now() / 100
   const secret = slackReplySecret();
   if (!secret) return { ok: false, status: 503, error: "reply_unconfigured" };
   if (nowSec >= exp) return { ok: false, status: 401, error: "expired" };
+  if (exp > nowSec + SLACK_REPLY_TTL_SEC + SLACK_REPLY_SKEW_SEC) {
+    return { ok: false, status: 401, error: "exp_too_far" };
+  }
   const expected = signSlackReply(channelId, threadTs, exp, secret);
   const left = Buffer.from(sig);
   const right = Buffer.from(expected);

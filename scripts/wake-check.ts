@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { proactiveSlackReply, SLACK_REPLY_SKEW_SEC, SLACK_REPLY_TTL_SEC } from "../src/lib/slack-reply";
+import { parseThreadWatchAsk, threadWatchAck } from "../src/lib/thread-watch";
 import { receiveGithubWebhook, receiveSlackEvent, receiveSlackReply } from "../src/server/listeners";
+import { getThreadWatch } from "../src/server/watches";
 
 const slackSecret = "slack-secret";
 const githubSecret = "github-secret";
@@ -828,6 +831,146 @@ const noToken = await receiveSlackReply(
 );
 assert.equal(noToken.status, 503);
 process.env.SLACK_BOT_TOKEN = "xoxb-test";
+
+assert.equal(proactiveSlackReply("C09DTUTJ1CP", "1789001537.017619", "   ", "reply-secret"), null);
+const proactive = proactiveSlackReply("C09DTUTJ1CP", "1789001537.017619", "CE-19 is green", "reply-secret");
+assert.ok(proactive);
+assert.equal(proactive.channel_id, "C09DTUTJ1CP");
+assert.equal(proactive.thread_ts, "1789001537.017619");
+assert.equal(proactive.text, "CE-19 is green");
+assert.equal(proactive.sig, replySig(proactive.channel_id, proactive.thread_ts, proactive.exp, "reply-secret"));
+const beforeProactive = handoffs();
+const proactiveRes = await receiveSlackReply(JSON.stringify(proactive));
+assert.deepEqual(proactiveRes, { status: 200, body: { ok: true, posted: true } });
+assert.equal(calls.at(-1)?.authorization, "Bearer xoxb-test");
+assert.deepEqual(calls.at(-1)?.body, {
+  channel: "C09DTUTJ1CP",
+  text: "CE-19 is green",
+  thread_ts: "1789001537.017619",
+});
+assert.equal(handoffs(), beforeProactive);
+
+const skewExp = Math.floor(Date.now() / 1000) + SLACK_REPLY_TTL_SEC + SLACK_REPLY_SKEW_SEC;
+const skewRes = await receiveSlackReply(
+  JSON.stringify({
+    text: "within skew",
+    channel_id: "C09DTUTJ1CP",
+    thread_ts: "1789001600.000001",
+    exp: skewExp,
+    sig: replySig("C09DTUTJ1CP", "1789001600.000001", skewExp, "reply-secret"),
+  }),
+);
+assert.deepEqual(skewRes, { status: 200, body: { ok: true, posted: true } });
+
+const farExp = Math.floor(Date.now() / 1000) + SLACK_REPLY_TTL_SEC + SLACK_REPLY_SKEW_SEC + 30;
+const beforeFar = calls.length;
+const farRes = await receiveSlackReply(
+  JSON.stringify({
+    text: "too far",
+    channel_id: "C09DTUTJ1CP",
+    thread_ts: "1789001537.017619",
+    exp: farExp,
+    sig: replySig("C09DTUTJ1CP", "1789001537.017619", farExp, "reply-secret"),
+  }),
+);
+assert.equal(farRes.status, 401);
+assert.deepEqual(farRes.body, { error: "exp_too_far" });
+assert.equal(calls.length, beforeFar);
+
+assert.deepEqual(parseThreadWatchAsk("<@UBOT> watch this thread"), { refs: [] });
+assert.deepEqual(parseThreadWatchAsk("<@U08C40K4FHN> please watch this thread"), { refs: [] });
+assert.deepEqual(parseThreadWatchAsk("can you watch the thread"), { refs: [] });
+assert.deepEqual(parseThreadWatchAsk("keep this thread updated"), { refs: [] });
+assert.deepEqual(parseThreadWatchAsk("keep me updated on this thread"), { refs: [] });
+assert.equal(parseThreadWatchAsk("ship the api"), null);
+assert.equal(parseThreadWatchAsk("<@UBOT> ping"), null);
+assert.equal(parseThreadWatchAsk("watch the deploy"), null);
+assert.equal(parseThreadWatchAsk("don't watch this thread"), null);
+assert.deepEqual(
+  parseThreadWatchAsk(
+    "<@UBOT> watch this thread CE-19 https://github.com/DollarPe-Infra/fleetglass/pull/7 and avinitDollarpe/boarding-fleetglass#9",
+  ),
+  { refs: ["CE-19", "DollarPe-Infra/fleetglass#7", "avinitDollarpe/boarding-fleetglass#9"] },
+);
+assert.deepEqual(parseThreadWatchAsk("watch this thread ce-19 CE-19"), { refs: ["CE-19"] });
+assert.equal(threadWatchAck([]), "Watching this thread. Updates land here on material change.");
+assert.equal(
+  threadWatchAck(["CE-19", "DollarPe-Infra/fleetglass#7"]),
+  "Watching this thread for CE-19, DollarPe-Infra/fleetglass#7. Updates land here on material change.",
+);
+
+const beforeWatch = calls.length;
+const watched = await postMention({
+  text: "<@UBOT> watch this thread for CE-19 https://github.com/DollarPe-Infra/fleetglass/pull/7",
+  ts: "1789001537.017700",
+  channel: "C09DTUTJ1CP",
+  thread_ts: "1789001537.017620",
+  event_id: "EvWatch",
+});
+assert.deepEqual(watched.body, { ok: true, woke: true, deduped: false });
+const watchSlice = calls.slice(beforeWatch);
+assert.equal(
+  watchSlice.some((call) => call.url.endsWith("/chat.postMessage")),
+  false,
+);
+const watchBrief = watchSlice.find((call) => call.url === "http://richard.test/wake")?.body as {
+  text?: string;
+  watch?: {
+    channel_id: string;
+    thread_ts: string;
+    refs: string[];
+    owner_id: string;
+    created_at: string;
+    ack: string;
+  };
+  reply?: { channel_id?: string; thread_ts?: string; exp: number; sig: string };
+};
+assert.equal(
+  watchBrief.text,
+  "<@UBOT> watch this thread for CE-19 https://github.com/DollarPe-Infra/fleetglass/pull/7",
+);
+assert.deepEqual(watchBrief.watch?.refs, ["CE-19", "DollarPe-Infra/fleetglass#7"]);
+assert.equal(watchBrief.watch?.channel_id, "C09DTUTJ1CP");
+assert.equal(watchBrief.watch?.thread_ts, "1789001537.017620");
+assert.equal(watchBrief.watch?.owner_id, "U08C40K4FHN");
+assert.equal(
+  watchBrief.watch?.ack,
+  "Watching this thread for CE-19, DollarPe-Infra/fleetglass#7. Updates land here on material change.",
+);
+assert.equal(watchBrief.reply?.channel_id, "C09DTUTJ1CP");
+assert.equal(watchBrief.reply?.thread_ts, "1789001537.017620");
+const stored = await getThreadWatch("C09DTUTJ1CP", "1789001537.017620");
+assert.deepEqual(stored?.refs, ["CE-19", "DollarPe-Infra/fleetglass#7"]);
+assert.equal(stored?.ownerId, "U08C40K4FHN");
+assert.equal(stored?.createdAt, watchBrief.watch?.created_at);
+const acked = await receiveSlackReply(
+  JSON.stringify({
+    text: watchBrief.watch?.ack,
+    channel_id: watchBrief.reply?.channel_id,
+    thread_ts: watchBrief.reply?.thread_ts,
+    exp: watchBrief.reply?.exp,
+    sig: watchBrief.reply?.sig,
+  }),
+);
+assert.deepEqual(acked, { status: 200, body: { ok: true, posted: true } });
+assert.deepEqual(calls.at(-1)?.body, {
+  channel: "C09DTUTJ1CP",
+  text: "Watching this thread for CE-19, DollarPe-Infra/fleetglass#7. Updates land here on material change.",
+  thread_ts: "1789001537.017620",
+});
+
+const rewatch = await postMention({
+  text: "keep this thread updated DollarPe-Infra/app#3",
+  ts: "1789001537.017701",
+  channel: "C09DTUTJ1CP",
+  thread_ts: "1789001537.017620",
+  event_id: "EvRewatch",
+});
+assert.deepEqual(rewatch.body, { ok: true, woke: true, deduped: false });
+const restored = await getThreadWatch("C09DTUTJ1CP", "1789001537.017620");
+assert.deepEqual(restored?.refs, ["DollarPe-Infra/app#3"]);
+assert.equal(restored?.createdAt, stored?.createdAt);
+assert.equal(await getThreadWatch("C9", "1710000000.000010"), null);
 
 console.log("wake checks ok");
 }
