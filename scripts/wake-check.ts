@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { receiveGithubWebhook, receiveSlackEvent } from "../src/server/listeners";
+import { receiveGithubWebhook, receiveSlackEvent, receiveSlackReply } from "../src/server/listeners";
 
 const slackSecret = "slack-secret";
 const githubSecret = "github-secret";
@@ -10,10 +10,15 @@ process.env.GITHUB_WEBHOOK_SECRET = githubSecret;
 delete process.env.SLACK_BOT_TOKEN;
 delete process.env.DATABASE_URL;
 delete process.env.CHIEF_HANDOFF_AUTHORIZATION;
+delete process.env.FLEETGLASS_PUBLIC_URL;
+delete process.env.FLEETGLASS_REPLY_SECRET;
+delete process.env.VERCEL_URL;
 
 const calls: { url: string; body: unknown; authorization: string | null }[] = [];
 const originalFetch = globalThis.fetch;
 let slackStatusMode: "ok" | "not_ok" | "throw" | "session" = "ok";
+let slackPostMode: "ok" | "not_ok" | "throw" = "ok";
+let slackClearThrows = false;
 
 function authHeader(init?: RequestInit): string | null {
   const headers = init?.headers;
@@ -39,6 +44,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")), authorization });
     if (url.endsWith("/chat.getPermalink")) return new Response(JSON.stringify({ ok: false }), { status: 200 });
     if (url.endsWith("/assistant.threads.setStatus")) {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as { status?: string };
+      if (payload.status === "" && slackClearThrows) throw new Error("clear down");
       if (slackStatusMode === "throw") throw new Error("setStatus down");
       if (slackStatusMode === "not_ok") {
         return new Response(JSON.stringify({ ok: false, error: "invalid_auth" }), { status: 200 });
@@ -49,6 +56,13 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         });
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    if (url.endsWith("/chat.postMessage")) {
+      if (slackPostMode === "throw") throw new Error("postMessage down");
+      if (slackPostMode === "not_ok") {
+        return new Response(JSON.stringify({ ok: false, error: "channel_not_found" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true, ts: "1710000000.999000" }), { status: 200 });
     }
     if (url.endsWith("/agents.sessions.setStatus")) {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -289,6 +303,321 @@ const beforeStranger = calls.length;
 const strangerToken = await receiveSlackEvent(strangerWithTokenRaw, ts, slackSig(strangerWithTokenRaw, ts));
 assert.deepEqual(strangerToken.body, { ok: true, ignored: "owner" });
 assert.equal(calls.length, beforeStranger);
+
+slackStatusMode = "ok";
+slackPostMode = "ok";
+slackClearThrows = false;
+const handoffs = () => calls.filter((call) => call.url.startsWith("http://richard.test")).length;
+
+function slackMention(partial: {
+  text: string;
+  ts: string;
+  channel?: string;
+  thread_ts?: string;
+  user?: string;
+  event_id?: string;
+}) {
+  return {
+    type: "event_callback",
+    team_id: "T1",
+    event_id: partial.event_id ?? `Ev${partial.ts}`,
+    authorizations: [{ user_id: "UBOT", is_bot: true }],
+    event: {
+      type: "app_mention",
+      user: partial.user ?? "U08C40K4FHN",
+      text: partial.text,
+      ts: partial.ts,
+      channel: partial.channel ?? "C9",
+      ...(partial.thread_ts ? { thread_ts: partial.thread_ts } : {}),
+    },
+  };
+}
+
+async function postMention(partial: Parameters<typeof slackMention>[0]) {
+  const raw = JSON.stringify(slackMention(partial));
+  return receiveSlackEvent(raw, ts, slackSig(raw, ts));
+}
+
+const beforePing = handoffs();
+const beforePingCalls = calls.length;
+const ping = await postMention({ text: "<@UBOT> ping", ts: "1710000000.001000", thread_ts: "1710000000.000010" });
+assert.equal(ping.status, 200);
+assert.deepEqual(ping.body, { ok: true, woke: false, answered: "pong" });
+assert.equal(handoffs(), beforePing);
+const pingCalls = calls.slice(beforePingCalls);
+assert.deepEqual(
+  pingCalls.map((call) => call.url),
+  ["https://slack.com/api/assistant.threads.setStatus", "https://slack.com/api/chat.postMessage"],
+);
+assert.equal(pingCalls[0]?.authorization, "Bearer xoxb-test");
+assert.deepEqual(pingCalls[0]?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.000010",
+  status: "is thinking...",
+});
+assert.equal(pingCalls[1]?.authorization, "Bearer xoxb-test");
+assert.deepEqual(pingCalls[1]?.body, {
+  channel: "C9",
+  text: "pong",
+  thread_ts: "1710000000.000010",
+});
+
+const cased = await postMention({ text: "<@UBOT|Richard>  PING", ts: "1710000000.001100" });
+assert.deepEqual(cased.body, { ok: true, woke: false, answered: "pong" });
+assert.equal(handoffs(), beforePing);
+const casedPost = calls.at(-1);
+assert.deepEqual(casedPost?.body, {
+  channel: "C9",
+  text: "pong",
+  thread_ts: "1710000000.001100",
+});
+
+const notPing = await postMention({ text: "<@UBOT> ping please", ts: "1710000000.001200", thread_ts: "1710000000.000010" });
+assert.deepEqual(notPing.body, { ok: true, woke: true, deduped: false });
+assert.equal(handoffs(), beforePing + 1);
+assert.equal("reply" in ((calls.at(-1)?.body as object) ?? {}), false);
+
+const strangerPing = await postMention({ text: "<@UBOT> ping", ts: "1710000000.001300", user: "U000" });
+assert.deepEqual(strangerPing.body, { ok: true, ignored: "owner" });
+assert.equal(handoffs(), beforePing + 1);
+
+process.env.SLACK_MENTION_USER_ID = "UOWNER2";
+const overridden = await postMention({ text: "ping", ts: "1710000000.001400", user: "U08C40K4FHN" });
+assert.deepEqual(overridden.body, { ok: true, ignored: "owner" });
+const owner2 = await postMention({ text: "ping", ts: "1710000000.001500", user: "UOWNER2" });
+assert.deepEqual(owner2.body, { ok: true, woke: false, answered: "pong" });
+process.env.SLACK_MENTION_USER_ID = "U08C40K4FHN";
+assert.equal(handoffs(), beforePing + 1);
+
+process.env.SLACK_BOT_USER_ID = "UOTHER";
+const wrongBot = await postMention({ text: "ping", ts: "1710000000.001600" });
+assert.deepEqual(wrongBot.body, { ok: true, ignored: "bot" });
+delete process.env.SLACK_BOT_USER_ID;
+assert.equal(handoffs(), beforePing + 1);
+
+slackPostMode = "throw";
+const beforeThrow = calls.length;
+const thrownPong = await postMention({ text: "ping", ts: "1710000000.001700", thread_ts: "1710000000.000010" });
+assert.equal(thrownPong.status, 200);
+assert.deepEqual(thrownPong.body, { ok: true, woke: false, answered: "pong" });
+assert.equal(handoffs(), beforePing + 1);
+const throwSlice = calls.slice(beforeThrow);
+assert.deepEqual(
+  throwSlice.map((call) => call.url),
+  [
+    "https://slack.com/api/assistant.threads.setStatus",
+    "https://slack.com/api/chat.postMessage",
+    "https://slack.com/api/assistant.threads.setStatus",
+  ],
+);
+assert.deepEqual(throwSlice[0]?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.000010",
+  status: "is thinking...",
+});
+assert.deepEqual(throwSlice[2]?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.000010",
+  status: "",
+});
+
+slackPostMode = "not_ok";
+const beforeDeny = calls.length;
+const deniedPong = await postMention({ text: "ping", ts: "1710000000.001800", channel: "C4" });
+assert.equal(deniedPong.status, 200);
+assert.deepEqual(deniedPong.body, { ok: true, woke: false, answered: "pong" });
+const denySlice = calls.slice(beforeDeny);
+assert.deepEqual(denySlice.at(-1)?.body, { channel_id: "C4", thread_ts: "1710000000.001800", status: "" });
+assert.equal(handoffs(), beforePing + 1);
+
+slackPostMode = "not_ok";
+slackStatusMode = "session";
+const beforeSessionPing = calls.length;
+const sessionPong = await postMention({ text: "ping", ts: "1710000000.001900", channel: "D9" });
+assert.equal(sessionPong.status, 200);
+const sessionSlice = calls.slice(beforeSessionPing);
+assert.deepEqual(
+  sessionSlice.map((call) => call.url),
+  [
+    "https://slack.com/api/assistant.threads.setStatus",
+    "https://slack.com/api/agents.sessions.setStatus",
+    "https://slack.com/api/chat.postMessage",
+    "https://slack.com/api/agents.sessions.setStatus",
+  ],
+);
+assert.deepEqual(sessionSlice[1]?.body, { channel_id: "D9", status: "processing" });
+assert.deepEqual(sessionSlice[3]?.body, { channel_id: "D9", status: "" });
+assert.equal(handoffs(), beforePing + 1);
+
+slackStatusMode = "ok";
+slackPostMode = "throw";
+slackClearThrows = true;
+const clearBoom = await postMention({ text: "ping", ts: "1710000000.002000" });
+assert.equal(clearBoom.status, 200);
+assert.deepEqual(clearBoom.body, { ok: true, woke: false, answered: "pong" });
+slackClearThrows = false;
+slackPostMode = "ok";
+
+delete process.env.SLACK_BOT_TOKEN;
+const quietPing = await postMention({ text: "ping", ts: "1710000000.002100" });
+assert.equal(quietPing.status, 200);
+assert.deepEqual(quietPing.body, { ok: true, woke: false, answered: "pong" });
+assert.equal(handoffs(), beforePing + 1);
+process.env.SLACK_BOT_TOKEN = "xoxb-test";
+
+process.env.FLEETGLASS_PUBLIC_URL = "https://fleetglass.example/";
+process.env.FLEETGLASS_REPLY_SECRET = "reply-secret";
+const beforeAsk = calls.length;
+const ask = await postMention({
+  text: "ship the api",
+  ts: "1710000000.002200",
+  thread_ts: "1710000000.000010",
+  event_id: "EvAsk",
+});
+assert.deepEqual(ask.body, { ok: true, woke: true, deduped: false });
+const askCalls = calls.slice(beforeAsk);
+assert.equal(askCalls.some((call) => call.url.endsWith("/chat.postMessage")), false);
+const askBrief = askCalls.find((call) => call.url === "http://richard.test/wake")?.body as {
+  reply?: { url: string; exp: number; sig: string };
+  text?: string;
+};
+const replyExp = Math.floor(Date.now() / 1000) + 15 * 60;
+assert.equal(askBrief.text, "ship the api");
+assert.equal(askBrief.reply?.url, "https://fleetglass.example/api/slack/reply");
+assert.ok(askBrief.reply && Math.abs(askBrief.reply.exp - replyExp) <= 2);
+const replySig = (channel: string, thread: string, exp: number, secret: string) =>
+  createHmac("sha256", secret).update(JSON.stringify(["v1", channel, thread, exp])).digest("hex");
+assert.equal(askBrief.reply?.sig, replySig("C9", "1710000000.000010", askBrief.reply!.exp, "reply-secret"));
+
+delete process.env.FLEETGLASS_PUBLIC_URL;
+process.env.VERCEL_URL = "fleetglass-abc.vercel.app";
+const vercelAsk = await postMention({ text: "use vercel host", ts: "1710000000.002300" });
+assert.deepEqual(vercelAsk.body, { ok: true, woke: true, deduped: false });
+const vercelBrief = calls.at(-1)?.body as { reply?: { url: string; sig: string; exp: number } };
+assert.equal(vercelBrief.reply?.url, "https://fleetglass-abc.vercel.app/api/slack/reply");
+assert.equal(
+  vercelBrief.reply?.sig,
+  replySig("C9", "1710000000.002300", vercelBrief.reply!.exp, "reply-secret"),
+);
+delete process.env.VERCEL_URL;
+
+delete process.env.FLEETGLASS_REPLY_SECRET;
+process.env.FLEETGLASS_PUBLIC_URL = "https://fleetglass.example";
+const fallbackAsk = await postMention({ text: "secret fallback", ts: "1710000000.002400", thread_ts: "1710000000.000010" });
+const fallbackBrief = calls.at(-1)?.body as { reply?: { sig: string; exp: number } };
+assert.equal(
+  fallbackBrief.reply?.sig,
+  replySig("C9", "1710000000.000010", fallbackBrief.reply!.exp, slackSecret),
+);
+process.env.FLEETGLASS_REPLY_SECRET = "reply-secret";
+
+delete process.env.FLEETGLASS_PUBLIC_URL;
+delete process.env.VERCEL_URL;
+const bareAsk = await postMention({ text: "no callback", ts: "1710000000.002500" });
+assert.deepEqual(bareAsk.body, { ok: true, woke: true, deduped: false });
+assert.equal("reply" in ((calls.at(-1)?.body as object) ?? {}), false);
+process.env.FLEETGLASS_PUBLIC_URL = "https://fleetglass.example";
+
+const ghNoReply = {
+  ...gh,
+  comment: { ...gh.comment, id: 4244, body: "@cursor no slack reply field" },
+};
+const ghNoReplyRaw = JSON.stringify(ghNoReply);
+const ghNoReplyWake = await receiveGithubWebhook(ghNoReplyRaw, githubSig(ghNoReplyRaw), "issue_comment");
+assert.deepEqual(ghNoReplyWake.body, { ok: true, woke: true, deduped: false });
+assert.equal("reply" in ((calls.at(-1)?.body as object) ?? {}), false);
+
+const thread = "1710000000.000010";
+const liveExp = Math.floor(Date.now() / 1000) + 900;
+const liveSig = replySig("C9", thread, liveExp, "reply-secret");
+const liveBody = JSON.stringify({ text: "shipped", channel_id: "C9", thread_ts: thread, exp: liveExp, sig: liveSig });
+const beforeReply = calls.length;
+const posted = await receiveSlackReply(liveBody);
+assert.deepEqual(posted, { status: 200, body: { ok: true, posted: true } });
+const replyPost = calls.slice(beforeReply).find((call) => call.url.endsWith("/chat.postMessage"));
+assert.equal(replyPost?.authorization, "Bearer xoxb-test");
+assert.deepEqual(replyPost?.body, { channel: "C9", text: "shipped", thread_ts: thread });
+assert.equal(calls.slice(beforeReply).some((call) => String((call.body as { status?: string }).status) === ""), false);
+const reused = await receiveSlackReply(liveBody);
+assert.equal(reused.status, 403);
+assert.deepEqual(reused.body, { error: "reused" });
+assert.equal(calls.filter((call) => call.url.endsWith("/chat.postMessage") && (call.body as { text?: string }).text === "shipped").length, 1);
+
+const staleExp = Math.floor(Date.now() / 1000) - 5;
+const staleBody = JSON.stringify({
+  text: "late",
+  channel_id: "C9",
+  thread_ts: thread,
+  exp: staleExp,
+  sig: replySig("C9", thread, staleExp, "reply-secret"),
+});
+const beforeStale = calls.length;
+const stale = await receiveSlackReply(staleBody);
+assert.equal(stale.status, 401);
+assert.deepEqual(stale.body, { error: "expired" });
+assert.equal(calls.length, beforeStale);
+
+const badExp = liveExp;
+const badBody = JSON.stringify({
+  text: "nope",
+  channel_id: "C9",
+  thread_ts: thread,
+  exp: badExp,
+  sig: "ab".repeat(32),
+});
+const beforeBad = calls.length;
+const badSig = await receiveSlackReply(badBody);
+assert.equal(badSig.status, 401);
+assert.deepEqual(badSig.body, { error: "invalid_signature" });
+assert.equal(calls.length, beforeBad);
+
+const retargetExp = Math.floor(Date.now() / 1000) + 900;
+const retargetBody = JSON.stringify({
+  text: "stolen",
+  channel_id: "CEVIL",
+  thread_ts: thread,
+  exp: retargetExp,
+  sig: replySig("C9", thread, retargetExp, "reply-secret"),
+});
+const beforeRetarget = calls.length;
+const retarget = await receiveSlackReply(retargetBody);
+assert.equal(retarget.status, 401);
+assert.deepEqual(retarget.body, { error: "invalid_signature" });
+assert.equal(calls.length, beforeRetarget);
+
+const empty = await receiveSlackReply(JSON.stringify({ text: "  ", channel_id: "C9", thread_ts: thread, exp: liveExp, sig: liveSig }));
+assert.equal(empty.status, 400);
+const missing = await receiveSlackReply(JSON.stringify({ text: "hi", exp: liveExp, sig: liveSig }));
+assert.equal(missing.status, 400);
+
+slackPostMode = "not_ok";
+const retryExp = Math.floor(Date.now() / 1000) + 900;
+const retrySig = replySig("C2", thread, retryExp, "reply-secret");
+const retryBody = JSON.stringify({ text: "again", channel_id: "C2", thread_ts: thread, exp: retryExp, sig: retrySig });
+const beforeFailReply = calls.length;
+const failedReply = await receiveSlackReply(retryBody);
+assert.equal(failedReply.status, 502);
+assert.deepEqual(failedReply.body, { error: "slack_post_failed" });
+const failReplySlice = calls.slice(beforeFailReply);
+assert.deepEqual(failReplySlice.at(-1)?.body, { channel_id: "C2", thread_ts: thread, status: "" });
+slackPostMode = "ok";
+const retried = await receiveSlackReply(retryBody);
+assert.deepEqual(retried, { status: 200, body: { ok: true, posted: true } });
+assert.deepEqual(calls.at(-1)?.body, { channel: "C2", text: "again", thread_ts: thread });
+
+delete process.env.SLACK_BOT_TOKEN;
+const noTokenExp = Math.floor(Date.now() / 1000) + 900;
+const noToken = await receiveSlackReply(
+  JSON.stringify({
+    text: "needs token",
+    channel_id: "C9",
+    thread_ts: thread,
+    exp: noTokenExp,
+    sig: replySig("C9", thread, noTokenExp, "reply-secret"),
+  }),
+);
+assert.equal(noToken.status, 503);
+process.env.SLACK_BOT_TOKEN = "xoxb-test";
 
 console.log("wake checks ok");
 }

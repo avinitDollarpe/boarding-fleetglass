@@ -43,6 +43,20 @@ GitHub example:
 
 `source` is `slack` or `github`. `text` is the mention or the comment. `url` is the Slack permalink or the PR URL. `author` is the Slack user id or the GitHub login. `ids` holds the raw ids.
 
+A Slack brief can also include `reply` when `FLEETGLASS_PUBLIC_URL` or `VERCEL_URL` is set and a reply secret exists. The secret is `FLEETGLASS_REPLY_SECRET`, or `SLACK_SIGNING_SECRET` when the reply secret is unset. If neither base URL is set, the wake still runs and `reply` is omitted.
+
+```json
+{
+  "reply": {
+    "url": "https://fleetglass.example/api/slack/reply",
+    "exp": 1710001801,
+    "sig": "<hmac sha256 hex>"
+  }
+}
+```
+
+`exp` is a Unix second, 15 minutes ahead. `sig` is HMAC-SHA256 hex of `JSON.stringify(["v1", channel_id, thread_ts, exp])`. The routine that receives the brief POSTs `{ "text", "channel_id", "thread_ts", "exp", "sig" }` to `reply.url`, using the channel, thread, exp, and sig from the brief. That routine must POST the reply to Fleetglass. It must not use a Slack connector. Fleetglass then calls `chat.postMessage` with `SLACK_BOT_TOKEN`.
+
 | Response from Fleetglass | Meaning |
 | --- | --- |
 | 200 `{ "ok": true, "woke": true, "deduped": false }` | Richard returned 2xx |
@@ -60,9 +74,23 @@ Request URL: `https://<host>/api/slack/events`
 4. Subscribe to `app_mention`. Mentions from other users are acknowledged and ignored.
 5. Set `CHIEF_HANDOFF_URL` and `CHIEF_HANDOFF_AUTHORIZATION` from the `fleetglass-slack-chief-webhook` routine panel so a kept mention wakes Richard.
 
-`SLACK_BOT_TOKEN` loads a permalink when you have it. The wake does not wait on that token. Optional `SLACK_BOT_USER_ID` must match a bot user id on the payload when the payload lists any.
+`SLACK_BOT_TOKEN` loads a permalink when you have it. The wake does not wait on that token. The same token posts thinking status and bot replies. Optional `SLACK_BOT_USER_ID` must match a bot user id on the payload when the payload lists any.
 
 A missing signing secret is 503. A bad signature is 401.
+
+### Ping
+
+After the owner and bot checks, a mention whose text is exactly `ping` (mention tokens stripped, any case) is answered in Slack. Fleetglass sets the thinking status, then posts `pong` with `chat.postMessage` as the Richard bot. It does not call `CHIEF_HANDOFF_URL`. The event returns 200 `{ "ok": true, "woke": false, "answered": "pong" }`. If the post throws or Slack returns `ok: false`, Fleetglass clears the status with an empty `assistant.threads.setStatus` (or an empty `agents.sessions.setStatus` when that fallback was used) and still returns 200.
+
+Any other mention still wakes Richard. The visible reply for that ask is the signed callback above, posted by the Richard bot. A successful bot message clears the Slack status. Fleetglass does not set `username`, `icon_emoji`, `icon_url`, or `as_user`.
+
+### Slack app
+
+1. Enable Agents & AI Apps so `assistant.threads.setStatus` can show "{bot} is thinking...".
+2. Add the bot token scope `chat:write`.
+3. Reinstall the app to the workspace after the scope change, and put the new bot token in `SLACK_BOT_TOKEN`.
+4. Invite the bot to the channel.
+5. Point the Richard webhook routine at the brief's `reply.url`. Do not attach a Slack connector to that routine.
 
 ## GitHub
 
@@ -86,7 +114,9 @@ The idempotency key is `github_comment:{comment_id}`.
 | `CHIEF_HANDOFF_AUTHORIZATION` | For the Grok Bot routine | Full Authorization header from the routine panel |
 | `SLACK_SIGNING_SECRET` | For Slack | Request signature |
 | `SLACK_MENTION_USER_ID` | No | Default `U08C40K4FHN` |
-| `SLACK_BOT_TOKEN` | No | Permalink lookup |
+| `SLACK_BOT_TOKEN` | No | Permalink, thinking status, and `chat.postMessage` |
+| `FLEETGLASS_PUBLIC_URL` | No | Base URL for `reply.url`. Else `VERCEL_URL`. |
+| `FLEETGLASS_REPLY_SECRET` | No | HMAC key for `POST /api/slack/reply`. Else `SLACK_SIGNING_SECRET`. |
 | `SLACK_BOT_USER_ID` | No | Bot id check |
 | `GITHUB_WEBHOOK_SECRET` | For GitHub | Request signature |
 | `GITHUB_APP_SLUG` | No | Extra mention login |
@@ -129,7 +159,9 @@ npm run build
 
 ## Deploy
 
-Production is Vercel plus managed Postgres. Deploy is on hold until this API is reviewed. When you do deploy, set the env table above and run `npm run migrate` with `DATABASE_URL_MIGRATE`. Point the Slack app at `https://<host>/api/slack/events` and the GitHub webhook at `https://<host>/api/github/webhook`.
+Production is Vercel plus managed Postgres. Set the env table above and run `npm run migrate` with `DATABASE_URL_MIGRATE`. Point the Slack app at `https://<host>/api/slack/events` and the GitHub webhook at `https://<host>/api/github/webhook`.
+
+For bot replies on Vercel, set `SLACK_BOT_TOKEN` to the reinstalled bot token and set `FLEETGLASS_PUBLIC_URL` to `https://<production host>` with no trailing slash. `VERCEL_URL` is the fallback host when the public URL is unset. Set `FLEETGLASS_REPLY_SECRET` to a long random string, or leave it unset to sign replies with `SLACK_SIGNING_SECRET`. Reinstall the Slack app after adding `chat:write`, then invite the bot to the channel.
 
 `output: "standalone"` is for the Docker image. Vercel builds Next.js itself.
 
