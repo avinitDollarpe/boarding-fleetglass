@@ -520,14 +520,17 @@ assert.equal(askBrief.reply?.sig, replySig("C9", "1710000000.000010", askBrief.r
 
 delete process.env.FLEETGLASS_PUBLIC_URL;
 process.env.VERCEL_URL = "fleetglass-abc.vercel.app";
+const beforeVercel = calls.length;
 const vercelAsk = await postMention({ text: "use vercel host", ts: "1710000000.002300" });
 assert.deepEqual(vercelAsk.body, { ok: true, woke: true, deduped: false });
-const vercelBrief = calls.at(-1)?.body as { reply?: { url: string; sig: string; exp: number } };
-assert.equal(vercelBrief.reply?.url, "https://fleetglass-abc.vercel.app/api/slack/reply");
-assert.equal(
-  vercelBrief.reply?.sig,
-  replySig("C9", "1710000000.002300", vercelBrief.reply!.exp, "reply-secret"),
-);
+const vercelSlice = calls.slice(beforeVercel);
+const vercelBrief = vercelSlice.find((call) => call.url === "http://richard.test/wake")?.body as { reply?: unknown };
+assert.equal(vercelBrief.reply, undefined);
+assert.deepEqual(vercelSlice.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.002300",
+  status: "",
+});
 delete process.env.VERCEL_URL;
 
 delete process.env.FLEETGLASS_REPLY_SECRET;
@@ -573,7 +576,7 @@ const localSlice = calls.slice(beforeLocal);
 const localBrief = localSlice.find((call) => call.url === "http://richard.test/wake")?.body as {
   reply?: { url?: string };
 };
-assert.equal(localBrief.reply?.url, "http://127.0.0.1:3000/api/slack/reply");
+assert.equal(localBrief.reply, undefined);
 assert.deepEqual(localSlice.at(-1)?.body, {
   channel_id: "C9",
   thread_ts: "1710000000.000010",
@@ -588,10 +591,7 @@ const previewSlice = calls.slice(beforePreview);
 const previewBrief = previewSlice.find((call) => call.url === "http://richard.test/wake")?.body as {
   reply?: { url?: string };
 };
-assert.equal(
-  previewBrief.reply?.url,
-  "https://boarding-fleetglass-git-preview-dollarpe.vercel.app/api/slack/reply",
-);
+assert.equal(previewBrief.reply, undefined);
 assert.deepEqual(previewSlice.at(-1)?.body, {
   channel_id: "C9",
   thread_ts: "1710000000.002700",
@@ -608,10 +608,7 @@ const previewEnvSlice = calls.slice(beforePreviewEnv);
 const previewEnvBrief = previewEnvSlice.find((call) => call.url === "http://richard.test/wake")?.body as {
   reply?: { url?: string };
 };
-assert.equal(
-  previewEnvBrief.reply?.url,
-  "https://boarding-fleetglass-abc123-dollarpe.vercel.app/api/slack/reply",
-);
+assert.equal(previewEnvBrief.reply, undefined);
 assert.deepEqual(previewEnvSlice.at(-1)?.body, {
   channel_id: "C9",
   thread_ts: "1710000000.002800",
@@ -625,6 +622,8 @@ const beforeBadUrl = calls.length;
 const badUrlAsk = await postMention({ text: "bad public url", ts: "1710000000.002900" });
 assert.deepEqual(badUrlAsk.body, { ok: true, woke: true, deduped: false });
 const badUrlSlice = calls.slice(beforeBadUrl);
+const badUrlBrief = badUrlSlice.find((call) => call.url === "http://richard.test/wake")?.body as { reply?: unknown };
+assert.equal(badUrlBrief.reply, undefined);
 assert.deepEqual(badUrlSlice.at(-1)?.body, {
   channel_id: "C9",
   thread_ts: "1710000000.002900",
