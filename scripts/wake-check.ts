@@ -9,14 +9,21 @@ process.env.SLACK_MENTION_USER_ID = "U08C40K4FHN";
 process.env.GITHUB_WEBHOOK_SECRET = githubSecret;
 delete process.env.SLACK_BOT_TOKEN;
 delete process.env.DATABASE_URL;
+delete process.env.CHIEF_HANDOFF_AUTHORIZATION;
 
-const calls: { url: string; body: unknown }[] = [];
+const calls: { url: string; body: unknown; authorization: string | null }[] = [];
 const originalFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   if (url.startsWith("http://richard.test")) {
-    calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
-    return new Response("{}", { status: 200 });
+    const headers = new Headers(init?.headers);
+    calls.push({
+      url,
+      body: JSON.parse(String(init?.body ?? "{}")),
+      authorization: headers.get("authorization"),
+    });
+    const status = url.endsWith("/fail") ? 401 : 200;
+    return new Response("{}", { status });
   }
   return originalFetch(input, init);
 }) as typeof fetch;
@@ -61,6 +68,7 @@ process.env.CHIEF_HANDOFF_URL = "http://richard.test/wake";
 const first = await receiveSlackEvent(mentionRaw, ts, slackSig(mentionRaw, ts));
 assert.deepEqual(first.body, { ok: true, woke: true, deduped: false });
 assert.equal(calls.length, 1);
+assert.equal(calls[0]?.authorization, null);
 assert.deepEqual(calls[0]?.body, {
   type: "fleetglass.wake",
   source: "slack",
@@ -87,6 +95,41 @@ const strangerRaw = JSON.stringify(stranger);
 const ignored = await receiveSlackEvent(strangerRaw, ts, slackSig(strangerRaw, ts));
 assert.deepEqual(ignored.body, { ok: true, ignored: "owner" });
 
+process.env.CHIEF_HANDOFF_AUTHORIZATION = "Bearer routine-key";
+const authed = {
+  ...mention,
+  event: { ...mention.event, text: "authed wake", ts: "1710000000.000300" },
+};
+const authedRaw = JSON.stringify(authed);
+const authedRes = await receiveSlackEvent(authedRaw, ts, slackSig(authedRaw, ts));
+assert.deepEqual(authedRes.body, { ok: true, woke: true, deduped: false });
+assert.equal(calls.at(-1)?.authorization, "Bearer routine-key");
+
+process.env.CHIEF_HANDOFF_AUTHORIZATION = "  raw-key-no-scheme  ";
+const rawAuth = {
+  ...mention,
+  event: { ...mention.event, text: "raw auth", ts: "1710000000.000400" },
+};
+const rawAuthRaw = JSON.stringify(rawAuth);
+const rawAuthRes = await receiveSlackEvent(rawAuthRaw, ts, slackSig(rawAuthRaw, ts));
+assert.deepEqual(rawAuthRes.body, { ok: true, woke: true, deduped: false });
+assert.equal(calls.at(-1)?.authorization, "raw-key-no-scheme");
+
+process.env.CHIEF_HANDOFF_URL = "http://richard.test/fail";
+process.env.CHIEF_HANDOFF_AUTHORIZATION = "Bearer routine-key";
+const failed = {
+  ...mention,
+  event: { ...mention.event, text: "fail wake", ts: "1710000000.000500" },
+};
+const failedRaw = JSON.stringify(failed);
+const failedRes = await receiveSlackEvent(failedRaw, ts, slackSig(failedRaw, ts));
+assert.equal(failedRes.status, 502);
+assert.deepEqual(failedRes.body, { error: "wake_failed" });
+assert.equal(calls.at(-1)?.authorization, "Bearer routine-key");
+
+process.env.CHIEF_HANDOFF_URL = "http://richard.test/wake";
+delete process.env.CHIEF_HANDOFF_AUTHORIZATION;
+
 const gh = {
   action: "created",
   repository: { full_name: "avinitDollarpe/boarding-fleetglass", html_url: "https://github.com/avinitDollarpe/boarding-fleetglass" },
@@ -94,10 +137,12 @@ const gh = {
   comment: { id: 4242, body: "@cursor look at the webhook", user: { login: "avinitDollarpe" } },
 };
 const ghRaw = JSON.stringify(gh);
+const callsBeforeGithub = calls.length;
 const ghFirst = await receiveGithubWebhook(ghRaw, githubSig(ghRaw), "issue_comment");
 assert.deepEqual(ghFirst.body, { ok: true, woke: true, deduped: false });
-assert.equal(calls.length, 2);
-assert.deepEqual(calls[1]?.body, {
+assert.equal(calls.length, callsBeforeGithub + 1);
+assert.equal(calls.at(-1)?.authorization, null);
+assert.deepEqual(calls.at(-1)?.body, {
   type: "fleetglass.wake",
   source: "github",
   text: "@cursor look at the webhook",
@@ -111,7 +156,7 @@ assert.deepEqual(calls[1]?.body, {
 });
 const ghSecond = await receiveGithubWebhook(ghRaw, githubSig(ghRaw), "issue_comment");
 assert.deepEqual(ghSecond.body, { ok: true, woke: false, deduped: true });
-assert.equal(calls.length, 2);
+assert.equal(calls.length, callsBeforeGithub + 1);
 
 const unsigned = await receiveGithubWebhook(ghRaw, "sha256=nope", "issue_comment");
 assert.equal(unsigned.status, 401);

@@ -46,7 +46,7 @@ There is no Slack OAuth and no settings form.
 
 GitHub uses the same `type` with `source` `github`. `url` is the PR URL. `author` is the commenter login. `ids` carries `comment_id`, `repo`, and `pr_number`.
 
-The request is `POST` with `Content-Type: application/json`. There is no auth header. Treat the URL as the secret.
+The request is `POST` with `Content-Type: application/json`. When `CHIEF_HANDOFF_AUTHORIZATION` is set, that trimmed value is sent as the `Authorization` header, unchanged. Unset, the POST has no Authorization header.
 
 | Result | HTTP | Body |
 | --- | --- | --- |
@@ -94,7 +94,8 @@ Unset secret is 503 `github_unconfigured`. A bad signature is 401 `invalid_signa
 | `SLACK_BOT_USER_ID` | Optional bot id check. |
 | `GITHUB_WEBHOOK_SECRET` | Verifies GitHub. Required for the webhook. |
 | `GITHUB_APP_SLUG` | Extra mention target. |
-| `CHIEF_HANDOFF_URL` | Richard wake URL. Required to actually wake. |
+| `CHIEF_HANDOFF_URL` | Richard wake URL. Routine panel Webhook URL. Required to actually wake. |
+| `CHIEF_HANDOFF_AUTHORIZATION` | Optional. Full Authorization header from routine `fleetglass-slack-chief-webhook`. |
 | `DATABASE_URL` | Optional. Enables `wake_keys` dedupe across processes. |
 | `DATABASE_URL_MIGRATE` | Role that can create `wake_keys`. |
 

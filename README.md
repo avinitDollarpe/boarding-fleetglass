@@ -4,7 +4,7 @@ Fleetglass is a backend API. It accepts Slack and GitHub events and wakes Richar
 
 ## Wake Richard
 
-Set `CHIEF_HANDOFF_URL` to the webhook Richard already listens on. Fleetglass sends `POST` with `Content-Type: application/json` and no auth header. The URL is the secret.
+Set `CHIEF_HANDOFF_URL` to the Webhook URL on Richard’s Grok Bot routine `fleetglass-slack-chief-webhook`. Set `CHIEF_HANDOFF_AUTHORIZATION` to the Authorization header from that same panel, full value, typically `Bearer <key>`. Fleetglass sends that string as the `Authorization` header and does not add or strip `Bearer`. Fleetglass sends `POST` with `Content-Type: application/json`. When `CHIEF_HANDOFF_AUTHORIZATION` is unset, the POST has no Authorization header.
 
 Slack example:
 
@@ -58,7 +58,7 @@ Request URL: `https://<host>/api/slack/events`
 2. Paste the request URL into Event Subscriptions.
 3. Slack sends `url_verification`. Fleetglass returns 200 and `{ "challenge": "<value>" }`.
 4. Subscribe to `app_mention`. Mentions from other users are acknowledged and ignored.
-5. Set `CHIEF_HANDOFF_URL` so a kept mention wakes Richard.
+5. Set `CHIEF_HANDOFF_URL` and `CHIEF_HANDOFF_AUTHORIZATION` from the `fleetglass-slack-chief-webhook` routine panel so a kept mention wakes Richard.
 
 `SLACK_BOT_TOKEN` loads a permalink when you have it. The wake does not wait on that token. Optional `SLACK_BOT_USER_ID` must match a bot user id on the payload when the payload lists any.
 
@@ -82,7 +82,8 @@ The idempotency key is `github_comment:{comment_id}`.
 
 | Variable | Required to wake | Role |
 | --- | --- | --- |
-| `CHIEF_HANDOFF_URL` | Yes | Richard's webhook |
+| `CHIEF_HANDOFF_URL` | Yes | Routine panel Webhook URL |
+| `CHIEF_HANDOFF_AUTHORIZATION` | For the Grok Bot routine | Full Authorization header from the routine panel |
 | `SLACK_SIGNING_SECRET` | For Slack | Request signature |
 | `SLACK_MENTION_USER_ID` | No | Default `U08C40K4FHN` |
 | `SLACK_BOT_TOKEN` | No | Permalink lookup |
@@ -111,7 +112,7 @@ Docker Compose runs Postgres 16 and the app:
 docker compose up --build
 ```
 
-Open http://localhost:3000. Put the Slack and GitHub secrets and `CHIEF_HANDOFF_URL` in the `app` service environment before you expect a wake.
+Open http://localhost:3000. Put the Slack and GitHub secrets, `CHIEF_HANDOFF_URL`, and `CHIEF_HANDOFF_AUTHORIZATION` in the `app` service environment before you expect a wake.
 
 ## Checks
 

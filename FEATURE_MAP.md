@@ -47,7 +47,7 @@ GitHub PR comment
 
 Code: `src/server/wake.ts` `deliverRichardWake`.
 
-HTTP contract. `POST $CHIEF_HANDOFF_URL` with `Content-Type: application/json`. No authorization header.
+HTTP contract. `POST $CHIEF_HANDOFF_URL` with `Content-Type: application/json`. When `CHIEF_HANDOFF_AUTHORIZATION` is set, that trimmed value is the `Authorization` header, unchanged. Do not add or strip `Bearer`. Richard’s Grok Bot webhook routine `fleetglass-slack-chief-webhook` requires it: paste the routine panel Webhook URL into `CHIEF_HANDOFF_URL` and the panel Authorization header into `CHIEF_HANDOFF_AUTHORIZATION`. Unset authorization keeps Content-Type only.
 
 Slack brief:
 
