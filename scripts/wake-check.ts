@@ -13,17 +13,47 @@ delete process.env.CHIEF_HANDOFF_AUTHORIZATION;
 
 const calls: { url: string; body: unknown; authorization: string | null }[] = [];
 const originalFetch = globalThis.fetch;
+let slackStatusMode: "ok" | "not_ok" | "throw" | "session" = "ok";
+
+function authHeader(init?: RequestInit): string | null {
+  const headers = init?.headers;
+  if (!headers) return null;
+  if (headers instanceof Headers) return headers.get("authorization");
+  if (Array.isArray(headers)) {
+    const found = headers.find(([key]) => key.toLowerCase() === "authorization");
+    return found?.[1] ?? null;
+  }
+  const record = headers as Record<string, string>;
+  return record.Authorization ?? record.authorization ?? null;
+}
+
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
+  const authorization = authHeader(init);
   if (url.startsWith("http://richard.test")) {
-    const headers = new Headers(init?.headers);
-    calls.push({
-      url,
-      body: JSON.parse(String(init?.body ?? "{}")),
-      authorization: headers.get("authorization"),
-    });
+    calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")), authorization });
     const status = url.endsWith("/fail") ? 401 : 200;
     return new Response("{}", { status });
+  }
+  if (url.startsWith("https://slack.com/api/")) {
+    calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")), authorization });
+    if (url.endsWith("/chat.getPermalink")) return new Response(JSON.stringify({ ok: false }), { status: 200 });
+    if (url.endsWith("/assistant.threads.setStatus")) {
+      if (slackStatusMode === "throw") throw new Error("setStatus down");
+      if (slackStatusMode === "not_ok") {
+        return new Response(JSON.stringify({ ok: false, error: "invalid_auth" }), { status: 200 });
+      }
+      if (slackStatusMode === "session") {
+        return new Response(JSON.stringify({ ok: false, error: "method_not_supported_for_channel_type" }), {
+          status: 200,
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    if (url.endsWith("/agents.sessions.setStatus")) {
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ ok: false, error: "unexpected_method" }), { status: 200 });
   }
   return originalFetch(input, init);
 }) as typeof fetch;
@@ -160,6 +190,105 @@ assert.equal(calls.length, callsBeforeGithub + 1);
 
 const unsigned = await receiveGithubWebhook(ghRaw, "sha256=nope", "issue_comment");
 assert.equal(unsigned.status, 401);
+assert.equal(calls.some((call) => call.url.includes("assistant.threads.setStatus")), false);
+
+process.env.SLACK_BOT_TOKEN = "xoxb-test";
+const thinking = {
+  ...mention,
+  event_id: "EvThink",
+  event: { ...mention.event, text: "think", ts: "1710000000.000300", channel: "C9" },
+};
+const thinkingRaw = JSON.stringify(thinking);
+const thought = await receiveSlackEvent(thinkingRaw, ts, slackSig(thinkingRaw, ts));
+assert.deepEqual(thought.body, { ok: true, woke: true, deduped: false });
+const statusCall = calls.find((call) => call.url === "https://slack.com/api/assistant.threads.setStatus");
+assert.ok(statusCall);
+assert.equal(statusCall.authorization, "Bearer xoxb-test");
+assert.deepEqual(statusCall.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.000300",
+  status: "is thinking...",
+});
+assert.equal(calls.filter((call) => call.url.startsWith("http://richard.test")).length, 6);
+
+const threaded = {
+  ...thinking,
+  event_id: "EvThread",
+  event: {
+    ...thinking.event,
+    ts: "1710000000.000400",
+    thread_ts: "1710000000.000010",
+  },
+};
+const threadedRaw = JSON.stringify(threaded);
+const threadedWake = await receiveSlackEvent(threadedRaw, ts, slackSig(threadedRaw, ts));
+assert.deepEqual(threadedWake.body, { ok: true, woke: true, deduped: false });
+const threadStatus = calls.filter((call) => call.url === "https://slack.com/api/assistant.threads.setStatus").at(-1);
+assert.deepEqual(threadStatus?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.000010",
+  status: "is thinking...",
+});
+
+slackStatusMode = "throw";
+const thrown = {
+  ...thinking,
+  event_id: "EvThrow",
+  event: { ...thinking.event, ts: "1710000000.000500" },
+};
+const thrownRaw = JSON.stringify(thrown);
+const thrownWake = await receiveSlackEvent(thrownRaw, ts, slackSig(thrownRaw, ts));
+assert.deepEqual(thrownWake.body, { ok: true, woke: true, deduped: false });
+assert.equal(calls.filter((call) => call.url.startsWith("http://richard.test")).length, 8);
+
+slackStatusMode = "not_ok";
+const denied = {
+  ...thinking,
+  event_id: "EvDeny",
+  event: { ...thinking.event, ts: "1710000000.000600" },
+};
+const deniedRaw = JSON.stringify(denied);
+const deniedWake = await receiveSlackEvent(deniedRaw, ts, slackSig(deniedRaw, ts));
+assert.deepEqual(deniedWake.body, { ok: true, woke: true, deduped: false });
+assert.equal(calls.filter((call) => call.url.startsWith("http://richard.test")).length, 9);
+
+slackStatusMode = "session";
+const session = {
+  ...thinking,
+  event_id: "EvSession",
+  event: { ...thinking.event, ts: "1710000000.000700", channel: "D1" },
+};
+const sessionRaw = JSON.stringify(session);
+const beforeSession = calls.length;
+const sessionWake = await receiveSlackEvent(sessionRaw, ts, slackSig(sessionRaw, ts));
+assert.deepEqual(sessionWake.body, { ok: true, woke: true, deduped: false });
+const sessionCalls = calls.slice(beforeSession);
+const sessionStatus = sessionCalls.find((call) => call.url.endsWith("/agents.sessions.setStatus"));
+assert.deepEqual(sessionStatus?.body, { channel_id: "D1", status: "processing" });
+assert.equal("thread_ts" in ((sessionStatus?.body as object) ?? {}), false);
+
+const ghWithToken = {
+  ...gh,
+  comment: { ...gh.comment, id: 4243, body: "@cursor still no slack status" },
+};
+const ghWithTokenRaw = JSON.stringify(ghWithToken);
+const beforeGh = calls.length;
+const ghTokenWake = await receiveGithubWebhook(ghWithTokenRaw, githubSig(ghWithTokenRaw), "issue_comment");
+assert.deepEqual(ghTokenWake.body, { ok: true, woke: true, deduped: false });
+assert.equal(
+  calls.slice(beforeGh).some((call) => call.url.includes("slack.com")),
+  false,
+);
+
+const strangerWithToken = {
+  ...thinking,
+  event: { ...thinking.event, user: "U000", ts: "1710000000.000800" },
+};
+const strangerWithTokenRaw = JSON.stringify(strangerWithToken);
+const beforeStranger = calls.length;
+const strangerToken = await receiveSlackEvent(strangerWithTokenRaw, ts, slackSig(strangerWithTokenRaw, ts));
+assert.deepEqual(strangerToken.body, { ok: true, ignored: "owner" });
+assert.equal(calls.length, beforeStranger);
 
 console.log("wake checks ok");
 }

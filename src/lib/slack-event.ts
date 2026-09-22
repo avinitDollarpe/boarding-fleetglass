@@ -23,6 +23,7 @@ export type SlackEventBody = {
     bot_id?: string;
     text?: string;
     ts?: string;
+    thread_ts?: string;
     channel?: string;
     channel_name?: string;
   };
@@ -39,6 +40,7 @@ export type SlackDecision =
       channel: string;
       channelName?: string;
       ts: string;
+      threadTs: string;
       user: string;
       text: string;
       eventId: string | null;
@@ -78,6 +80,7 @@ export function parseSlackEvent(payload: SlackEventBody): SlackDecision {
     channel: event.channel,
     channelName: event.channel_name,
     ts: event.ts,
+    threadTs: event.thread_ts?.trim() || event.ts,
     user: event.user,
     text: event.text ?? "",
     eventId: payload.event_id ?? null,

@@ -23,6 +23,51 @@ function wakeHttp(delivery: WakeDelivery): { status: number; body: Record<string
   return { status: 200, body: { ok: true, woke: delivery.woke, deduped: delivery.deduped } };
 }
 
+const SLACK_THINKING_STATUS = "is thinking...";
+const SLACK_STATUS_TIMEOUT_MS = 2500;
+
+function showSlackThinking(token: string, channel: string, threadTs: string): void {
+  void postSlackThinking(token, channel, threadTs);
+}
+
+async function slackApi(
+  token: string,
+  method: string,
+  payload: Record<string, string>,
+): Promise<{ ok?: boolean; error?: string }> {
+  const response = await fetch(`https://slack.com/api/${method}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(SLACK_STATUS_TIMEOUT_MS),
+  });
+  return (await response.json()) as { ok?: boolean; error?: string };
+}
+
+/** Fire-and-forget. A status failure must not change the wake response. */
+async function postSlackThinking(token: string, channel: string, threadTs: string): Promise<void> {
+  try {
+    const body = await slackApi(token, "assistant.threads.setStatus", {
+      channel_id: channel,
+      thread_ts: threadTs,
+      status: SLACK_THINKING_STATUS,
+    });
+    if (body.ok) return;
+    if (body.error !== "method_not_supported_for_channel_type") {
+      console.error("slack thinking status failed", body.error ?? "not_ok");
+      return;
+    }
+    // Session channels reject assistant.threads.setStatus. Omit thread_ts there.
+    const fallback = await slackApi(token, "agents.sessions.setStatus", {
+      channel_id: channel,
+      status: "processing",
+    });
+    if (!fallback.ok) console.error("slack thinking status failed", fallback.error ?? "not_ok");
+  } catch (error) {
+    console.error("slack thinking status failed", error instanceof Error ? error.message : "unknown");
+  }
+}
+
 async function slackPermalink(token: string, channel: string, ts: string): Promise<string> {
   const fallback = `https://slack.com/archives/${channel}/p${ts.replace(".", "")}`;
   try {
@@ -70,6 +115,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
   }
 
   const token = process.env.SLACK_BOT_TOKEN?.trim() || "";
+  if (token) showSlackThinking(token, decision.channel, decision.threadTs);
   const permalink = token
     ? await slackPermalink(token, decision.channel, decision.ts)
     : `https://slack.com/archives/${decision.channel}/p${decision.ts.replace(".", "")}`;

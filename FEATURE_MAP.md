@@ -32,6 +32,7 @@ GitHub PR comment
 | Owner | `SLACK_MENTION_USER_ID`, default `U08C40K4FHN`. Anyone else is `ignored: owner`. |
 | Bot id | Optional `SLACK_BOT_USER_ID`. When set, and the payload lists bot user ids, that id must be one of them. |
 | Permalink | `SLACK_BOT_TOKEN` calls `chat.getPermalink`. Without the token, the URL is `https://slack.com/archives/{channel}/p{ts}`. The wake still runs. |
+| Thinking | When `SLACK_BOT_TOKEN` is set and the mention will wake Richard, Fleetglass fires `assistant.threads.setStatus` with status `is thinking...`. Slack renders that as "{bot} is thinking...". `thread_ts` is the event thread, or the message `ts` when the mention is not already in a thread. The call is not awaited. Failures never change the wake HTTP result. An unset token skips it. Session channels return `method_not_supported_for_channel_type`; Fleetglass then calls `agents.sessions.setStatus` with `processing` and no `thread_ts`. That fallback is a loading state, not the words "is thinking...". |
 
 ## GitHub
 
