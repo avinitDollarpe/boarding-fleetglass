@@ -24,6 +24,32 @@ export function fleetglassPublicBase(): string | null {
   return host ? `https://${host}` : null;
 }
 
+function replyHostCanLand(base: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(base);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  const host = url.hostname.toLowerCase();
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "0.0.0.0") {
+    return false;
+  }
+  if (host.endsWith(".vercel.app") && host.includes("-git-")) return false;
+  return true;
+}
+
+/** Richard can POST this base. Preview hosts and non-http values cannot. */
+export function slackReplyCallbackCanLand(): boolean {
+  const explicit = process.env.FLEETGLASS_PUBLIC_URL?.trim().replace(/\/+$/, "");
+  if (explicit) return replyHostCanLand(explicit);
+  const env = process.env.VERCEL_ENV?.trim();
+  if (env === "preview" || env === "development") return false;
+  const base = fleetglassPublicBase();
+  return base ? replyHostCanLand(base) : false;
+}
+
 /** `FLEETGLASS_REPLY_SECRET` when set. Otherwise `SLACK_SIGNING_SECRET`. */
 export function slackReplySecret(): string {
   return process.env.FLEETGLASS_REPLY_SECRET?.trim() || process.env.SLACK_SIGNING_SECRET?.trim() || "";

@@ -79,7 +79,7 @@ Default mention user is `U08C40K4FHN`. Optional `SLACK_BOT_USER_ID` must be one 
 
 `ping` is case-insensitive. Fleetglass posts `pong` with `chat.postMessage` and `SLACK_BOT_TOKEN` in `decision.threadTs`. It does not call `deliverRichardWake`. A failed post still returns 200 and clears Slack status with an empty status string.
 
-Other Slack mentions still wake Richard. When `FLEETGLASS_PUBLIC_URL` or `VERCEL_URL` is set, and `FLEETGLASS_REPLY_SECRET` or `SLACK_SIGNING_SECRET` is set, the Slack brief includes `reply` (`url`, `exp`, `sig`). `POST /api/slack/reply` checks that HMAC and posts with the bot token. The routine must POST there. It must not use a Slack connector. GitHub briefs have no `reply`. An unset public URL omits `reply` and still wakes.
+Other Slack mentions still wake Richard. When `FLEETGLASS_PUBLIC_URL` or `VERCEL_URL` is set, and `FLEETGLASS_REPLY_SECRET` or `SLACK_SIGNING_SECRET` is set, the Slack brief includes `reply` (`url`, `exp`, `sig`). `POST /api/slack/reply` checks that HMAC and posts with the bot token. The routine must POST there. It must not use a Slack connector. GitHub briefs have no `reply`. An unset public URL omits `reply` and still wakes. After that wake succeeds, Fleetglass clears assistant status when the callback cannot land, so a missing or preview URL does not leave the thinking status on screen. A usable `reply.url` stays up until the bot posts.
 
 ## GitHub
 

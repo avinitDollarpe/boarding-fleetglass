@@ -82,7 +82,7 @@ A missing signing secret is 503. A bad signature is 401.
 
 After the owner and bot checks, a mention whose text is exactly `ping` (mention tokens stripped, any case) is answered in Slack. Fleetglass sets the thinking status, then posts `pong` with `chat.postMessage` as the Richard bot. It does not call `CHIEF_HANDOFF_URL`. The event returns 200 `{ "ok": true, "woke": false, "answered": "pong" }`. If the post throws or Slack returns `ok: false`, Fleetglass clears the status with an empty `assistant.threads.setStatus` (or an empty `agents.sessions.setStatus` when that fallback was used) and still returns 200.
 
-Any other mention still wakes Richard. The visible reply for that ask is the signed callback above, posted by the Richard bot. A successful bot message clears the Slack status. Fleetglass does not set `username`, `icon_emoji`, `icon_url`, or `as_user`.
+Any other mention still wakes Richard. The visible reply for that ask is the signed callback above, posted by the Richard bot. A successful bot message clears the Slack status. If the wake succeeds and Richard cannot call `reply.url`, Fleetglass clears the status itself. Set `FLEETGLASS_PUBLIC_URL` to the production origin so real replies still post. Fleetglass does not set `username`, `icon_emoji`, `icon_url`, or `as_user`.
 
 ### Slack app
 
