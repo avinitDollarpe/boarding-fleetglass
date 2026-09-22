@@ -2,7 +2,13 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { githubMentioned, githubMentionTargets, githubRepoInScope, SLACK_MENTION_USER_DEFAULT } from "@/lib/bots";
 import { normalizeIntake } from "@/lib/intake";
 import { isExactSlackPing, parseSlackEvent, verifySlackSignature, type SlackEventBody } from "@/lib/slack-event";
-import { claimSlackReply, mintSlackReply, releaseSlackReply, verifySlackReplyRequest } from "@/lib/slack-reply";
+import {
+  claimSlackReply,
+  mintSlackReply,
+  releaseSlackReply,
+  slackReplyCallbackCanLand,
+  verifySlackReplyRequest,
+} from "@/lib/slack-reply";
 import { deliverRichardWake, type RichardBrief, type WakeDelivery } from "@/server/wake";
 
 function safeEqual(a: string, b: string): boolean {
@@ -28,10 +34,6 @@ const SLACK_THINKING_STATUS = "is thinking...";
 const SLACK_STATUS_TIMEOUT_MS = 2500;
 
 type SlackStatusSurface = "thread" | "session" | "none";
-
-function showSlackThinking(token: string, channel: string, threadTs: string): void {
-  void postSlackThinking(token, channel, threadTs);
-}
 
 async function slackApi(
   token: string,
@@ -181,7 +183,10 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
 
   const token = process.env.SLACK_BOT_TOKEN?.trim() || "";
   if (isExactSlackPing(decision.text)) return answerSlackPing(token, decision.channel, decision.threadTs);
-  if (token) showSlackThinking(token, decision.channel, decision.threadTs);
+  const reply = mintSlackReply(decision.channel, decision.threadTs);
+  const callbackCanLand = reply !== null && slackReplyCallbackCanLand();
+  const thinking = token ? postSlackThinking(token, decision.channel, decision.threadTs) : null;
+  if (thinking && callbackCanLand) void thinking;
   const permalink = token
     ? await slackPermalink(token, decision.channel, decision.ts)
     : `https://slack.com/archives/${decision.channel}/p${decision.ts.replace(".", "")}`;
@@ -199,9 +204,11 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
       eventId: decision.eventId ?? undefined,
     },
   });
-  if (!intake.ok || !intake.value.idempotencyKey) return { status: 200, body: { ok: true, ignored: "empty" } };
+  if (!intake.ok || !intake.value.idempotencyKey) {
+    if (thinking && !callbackCanLand) void thinking;
+    return { status: 200, body: { ok: true, ignored: "empty" } };
+  }
 
-  const reply = mintSlackReply(decision.channel, decision.threadTs);
   const brief: RichardBrief = {
     type: "fleetglass.wake",
     source: "slack",
@@ -216,7 +223,15 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
     },
     ...(reply ? { reply } : {}),
   };
-  return wakeHttp(await deliverRichardWake(brief, intake.value.idempotencyKey));
+  const delivery = await deliverRichardWake(brief, intake.value.idempotencyKey);
+  if (thinking && !callbackCanLand && delivery.ok && delivery.woke) {
+    // Clear only after setStatus settles. A later setStatus stays on screen.
+    const surface = await thinking;
+    if (surface !== "none") await clearSlackStatus(token, decision.channel, decision.threadTs, surface);
+  } else if (thinking && !callbackCanLand) {
+    void thinking;
+  }
+  return wakeHttp(delivery);
 }
 
 export async function receiveSlackReply(raw: string) {

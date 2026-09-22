@@ -237,11 +237,20 @@ const threaded = {
 const threadedRaw = JSON.stringify(threaded);
 const threadedWake = await receiveSlackEvent(threadedRaw, ts, slackSig(threadedRaw, ts));
 assert.deepEqual(threadedWake.body, { ok: true, woke: true, deduped: false });
-const threadStatus = calls.filter((call) => call.url === "https://slack.com/api/assistant.threads.setStatus").at(-1);
-assert.deepEqual(threadStatus?.body, {
+const threadStatuses = calls.filter(
+  (call) =>
+    call.url === "https://slack.com/api/assistant.threads.setStatus" &&
+    (call.body as { thread_ts?: string }).thread_ts === "1710000000.000010",
+);
+assert.deepEqual(threadStatuses[0]?.body, {
   channel_id: "C9",
   thread_ts: "1710000000.000010",
   status: "is thinking...",
+});
+assert.deepEqual(threadStatuses.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.000010",
+  status: "",
 });
 
 slackStatusMode = "throw";
@@ -277,9 +286,15 @@ const beforeSession = calls.length;
 const sessionWake = await receiveSlackEvent(sessionRaw, ts, slackSig(sessionRaw, ts));
 assert.deepEqual(sessionWake.body, { ok: true, woke: true, deduped: false });
 const sessionCalls = calls.slice(beforeSession);
-const sessionStatus = sessionCalls.find((call) => call.url.endsWith("/agents.sessions.setStatus"));
-assert.deepEqual(sessionStatus?.body, { channel_id: "D1", status: "processing" });
-assert.equal("thread_ts" in ((sessionStatus?.body as object) ?? {}), false);
+const sessionStatuses = sessionCalls.filter((call) => call.url.endsWith("/agents.sessions.setStatus"));
+assert.deepEqual(
+  sessionStatuses.map((call) => call.body),
+  [
+    { channel_id: "D1", status: "processing" },
+    { channel_id: "D1", status: "" },
+  ],
+);
+assert.equal("thread_ts" in ((sessionStatuses[0]?.body as object) ?? {}), false);
 
 const ghWithToken = {
   ...gh,
@@ -375,7 +390,8 @@ assert.deepEqual(casedPost?.body, {
 const notPing = await postMention({ text: "<@UBOT> ping please", ts: "1710000000.001200", thread_ts: "1710000000.000010" });
 assert.deepEqual(notPing.body, { ok: true, woke: true, deduped: false });
 assert.equal(handoffs(), beforePing + 1);
-assert.equal("reply" in ((calls.at(-1)?.body as object) ?? {}), false);
+const notPingBrief = calls.filter((call) => call.url.startsWith("http://richard.test")).at(-1)?.body as object;
+assert.equal("reply" in (notPingBrief ?? {}), false);
 
 const strangerPing = await postMention({ text: "<@UBOT> ping", ts: "1710000000.001300", user: "U000" });
 assert.deepEqual(strangerPing.body, { ok: true, ignored: "owner" });
@@ -477,6 +493,19 @@ const ask = await postMention({
 assert.deepEqual(ask.body, { ok: true, woke: true, deduped: false });
 const askCalls = calls.slice(beforeAsk);
 assert.equal(askCalls.some((call) => call.url.endsWith("/chat.postMessage")), false);
+assert.equal(
+  askCalls.some(
+    (call) =>
+      call.url.endsWith("/assistant.threads.setStatus") && (call.body as { status?: string }).status === "is thinking...",
+  ),
+  true,
+);
+assert.equal(
+  askCalls.some(
+    (call) => call.url.endsWith("/assistant.threads.setStatus") && (call.body as { status?: string }).status === "",
+  ),
+  false,
+);
 const askBrief = askCalls.find((call) => call.url === "http://richard.test/wake")?.body as {
   reply?: { url: string; exp: number; sig: string };
   text?: string;
@@ -491,31 +520,136 @@ assert.equal(askBrief.reply?.sig, replySig("C9", "1710000000.000010", askBrief.r
 
 delete process.env.FLEETGLASS_PUBLIC_URL;
 process.env.VERCEL_URL = "fleetglass-abc.vercel.app";
+const beforeVercel = calls.length;
 const vercelAsk = await postMention({ text: "use vercel host", ts: "1710000000.002300" });
 assert.deepEqual(vercelAsk.body, { ok: true, woke: true, deduped: false });
-const vercelBrief = calls.at(-1)?.body as { reply?: { url: string; sig: string; exp: number } };
-assert.equal(vercelBrief.reply?.url, "https://fleetglass-abc.vercel.app/api/slack/reply");
-assert.equal(
-  vercelBrief.reply?.sig,
-  replySig("C9", "1710000000.002300", vercelBrief.reply!.exp, "reply-secret"),
-);
+const vercelSlice = calls.slice(beforeVercel);
+const vercelBrief = vercelSlice.find((call) => call.url === "http://richard.test/wake")?.body as { reply?: unknown };
+assert.equal(vercelBrief.reply, undefined);
+assert.deepEqual(vercelSlice.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.002300",
+  status: "",
+});
 delete process.env.VERCEL_URL;
 
 delete process.env.FLEETGLASS_REPLY_SECRET;
 process.env.FLEETGLASS_PUBLIC_URL = "https://fleetglass.example";
-const fallbackAsk = await postMention({ text: "secret fallback", ts: "1710000000.002400", thread_ts: "1710000000.000010" });
-const fallbackBrief = calls.at(-1)?.body as { reply?: { sig: string; exp: number } };
-assert.equal(
-  fallbackBrief.reply?.sig,
-  replySig("C9", "1710000000.000010", fallbackBrief.reply!.exp, slackSecret),
-);
+const beforeSecret = calls.length;
+const secretAsk = await postMention({ text: "secret fallback", ts: "1710000000.002400", thread_ts: "1710000000.000010" });
+assert.deepEqual(secretAsk.body, { ok: true, woke: true, deduped: false });
+const secretSlice = calls.slice(beforeSecret);
+const secretBrief = secretSlice.find((call) => call.url === "http://richard.test/wake")?.body as { reply?: unknown };
+assert.equal(secretBrief.reply, undefined);
+assert.deepEqual(secretSlice.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.000010",
+  status: "",
+});
 process.env.FLEETGLASS_REPLY_SECRET = "reply-secret";
 
 delete process.env.FLEETGLASS_PUBLIC_URL;
 delete process.env.VERCEL_URL;
+delete process.env.VERCEL_ENV;
+const beforeBare = calls.length;
 const bareAsk = await postMention({ text: "no callback", ts: "1710000000.002500" });
 assert.deepEqual(bareAsk.body, { ok: true, woke: true, deduped: false });
-assert.equal("reply" in ((calls.at(-1)?.body as object) ?? {}), false);
+const bareSlice = calls.slice(beforeBare);
+const bareBrief = bareSlice.find((call) => call.url === "http://richard.test/wake")?.body as { reply?: unknown };
+assert.equal(bareBrief.reply, undefined);
+assert.deepEqual(
+  bareSlice
+    .filter((call) => call.url.endsWith("/assistant.threads.setStatus"))
+    .map((call) => (call.body as { status?: string }).status),
+  ["is thinking...", ""],
+);
+assert.deepEqual(bareSlice.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.002500",
+  status: "",
+});
+
+process.env.FLEETGLASS_PUBLIC_URL = "http://127.0.0.1:3000";
+const beforeLocal = calls.length;
+const localAsk = await postMention({
+  text: "local callback",
+  ts: "1710000000.002600",
+  thread_ts: "1710000000.000010",
+});
+assert.deepEqual(localAsk.body, { ok: true, woke: true, deduped: false });
+const localSlice = calls.slice(beforeLocal);
+const localBrief = localSlice.find((call) => call.url === "http://richard.test/wake")?.body as {
+  reply?: { url?: string };
+};
+assert.equal(localBrief.reply, undefined);
+assert.deepEqual(localSlice.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.000010",
+  status: "",
+});
+
+process.env.FLEETGLASS_PUBLIC_URL = "https://boarding-fleetglass-git-preview-dollarpe.vercel.app";
+const beforePreview = calls.length;
+const previewAsk = await postMention({ text: "preview callback", ts: "1710000000.002700" });
+assert.deepEqual(previewAsk.body, { ok: true, woke: true, deduped: false });
+const previewSlice = calls.slice(beforePreview);
+const previewBrief = previewSlice.find((call) => call.url === "http://richard.test/wake")?.body as {
+  reply?: { url?: string };
+};
+assert.equal(previewBrief.reply, undefined);
+assert.deepEqual(previewSlice.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.002700",
+  status: "",
+});
+
+delete process.env.FLEETGLASS_PUBLIC_URL;
+process.env.VERCEL_ENV = "preview";
+process.env.VERCEL_URL = "boarding-fleetglass-abc123-dollarpe.vercel.app";
+const beforePreviewEnv = calls.length;
+const previewEnvAsk = await postMention({ text: "preview env", ts: "1710000000.002800" });
+assert.deepEqual(previewEnvAsk.body, { ok: true, woke: true, deduped: false });
+const previewEnvSlice = calls.slice(beforePreviewEnv);
+const previewEnvBrief = previewEnvSlice.find((call) => call.url === "http://richard.test/wake")?.body as {
+  reply?: { url?: string };
+};
+assert.equal(previewEnvBrief.reply, undefined);
+assert.deepEqual(previewEnvSlice.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.002800",
+  status: "",
+});
+delete process.env.VERCEL_ENV;
+delete process.env.VERCEL_URL;
+
+process.env.FLEETGLASS_PUBLIC_URL = "not-a-url";
+const beforeBadUrl = calls.length;
+const badUrlAsk = await postMention({ text: "bad public url", ts: "1710000000.002900" });
+assert.deepEqual(badUrlAsk.body, { ok: true, woke: true, deduped: false });
+const badUrlSlice = calls.slice(beforeBadUrl);
+const badUrlBrief = badUrlSlice.find((call) => call.url === "http://richard.test/wake")?.body as { reply?: unknown };
+assert.equal(badUrlBrief.reply, undefined);
+assert.deepEqual(badUrlSlice.at(-1)?.body, {
+  channel_id: "C9",
+  thread_ts: "1710000000.002900",
+  status: "",
+});
+
+process.env.VERCEL_ENV = "preview";
+process.env.FLEETGLASS_PUBLIC_URL = "https://boarding-fleetglass.vercel.app";
+const beforeProdOnPreview = calls.length;
+const prodOnPreview = await postMention({ text: "production url", ts: "1710000000.003000" });
+assert.deepEqual(prodOnPreview.body, { ok: true, woke: true, deduped: false });
+const prodOnPreviewSlice = calls.slice(beforeProdOnPreview);
+const prodOnPreviewBrief = prodOnPreviewSlice.find((call) => call.url === "http://richard.test/wake")?.body as {
+  reply?: { url?: string };
+};
+assert.equal(prodOnPreviewBrief.reply?.url, "https://boarding-fleetglass.vercel.app/api/slack/reply");
+assert.equal(
+  prodOnPreviewSlice.some((call) => (call.body as { status?: string }).status === ""),
+  false,
+);
+delete process.env.VERCEL_ENV;
 process.env.FLEETGLASS_PUBLIC_URL = "https://fleetglass.example";
 
 const ghNoReply = {

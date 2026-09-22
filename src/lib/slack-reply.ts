@@ -17,16 +17,35 @@ const usedReplies = new Map<string, number>();
 
 export function fleetglassPublicBase(): string | null {
   const explicit = process.env.FLEETGLASS_PUBLIC_URL?.trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const vercel = process.env.VERCEL_URL?.trim();
-  if (!vercel) return null;
-  const host = vercel.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-  return host ? `https://${host}` : null;
+  if (!explicit) return null;
+  return explicit.replace(/\/+$/, "");
 }
 
-/** `FLEETGLASS_REPLY_SECRET` when set. Otherwise `SLACK_SIGNING_SECRET`. */
+function replyHostCanLand(base: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(base);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  const host = url.hostname.toLowerCase();
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "0.0.0.0") {
+    return false;
+  }
+  if (host.endsWith(".vercel.app") && host.includes("-git-")) return false;
+  return true;
+}
+
+/** Richard can POST this base. Missing, localhost, and preview hosts cannot. */
+export function slackReplyCallbackCanLand(base: string | null = fleetglassPublicBase()): boolean {
+  if (!base) return false;
+  return replyHostCanLand(base);
+}
+
+/** Reply HMAC key. Mint and verify both use this. No signing-secret fallback. */
 export function slackReplySecret(): string {
-  return process.env.FLEETGLASS_REPLY_SECRET?.trim() || process.env.SLACK_SIGNING_SECRET?.trim() || "";
+  return process.env.FLEETGLASS_REPLY_SECRET?.trim() || "";
 }
 
 export function slackReplyCanonical(channelId: string, threadTs: string, exp: number): string {
@@ -40,7 +59,7 @@ export function signSlackReply(channelId: string, threadTs: string, exp: number,
 export function mintSlackReply(channelId: string, threadTs: string, nowSec = Date.now() / 1000): SlackReplyGrant | null {
   const base = fleetglassPublicBase();
   const secret = slackReplySecret();
-  if (!base || !secret || !channelId || !threadTs) return null;
+  if (!base || !slackReplyCallbackCanLand(base) || !secret || !channelId || !threadTs) return null;
   const exp = Math.floor(nowSec) + SLACK_REPLY_TTL_SEC;
   return {
     url: `${base}/api/slack/reply`,
