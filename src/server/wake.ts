@@ -14,6 +14,11 @@ export type RichardBrief =
         team_id: string;
         channel_id: string;
       };
+      reply?: {
+        url: string;
+        exp: number;
+        sig: string;
+      };
     }
   | {
       type: "fleetglass.wake";

@@ -73,8 +73,13 @@ When `DATABASE_URL` is set, the key is inserted into `wake_keys` (`drizzle/0004_
 | Bad `X-Slack-Signature` | 401 `invalid_signature` |
 | `url_verification` with `challenge` | 200 `{ "challenge": "<value>" }` |
 | `app_mention` from anyone except `SLACK_MENTION_USER_ID` | 200 `{ "ok": true, "ignored": "owner" }` |
+| Mention text is exactly `ping` after mention tokens are stripped | 200 `{ "ok": true, "woke": false, "answered": "pong" }` and no handoff |
 
 Default mention user is `U08C40K4FHN`. Optional `SLACK_BOT_USER_ID` must be one of the payload bot user ids when those ids are present. Only `app_mention` is ingested.
+
+`ping` is case-insensitive. Fleetglass posts `pong` with `chat.postMessage` and `SLACK_BOT_TOKEN` in `decision.threadTs`. It does not call `deliverRichardWake`. A failed post still returns 200 and clears Slack status with an empty status string.
+
+Other Slack mentions still wake Richard. When `FLEETGLASS_PUBLIC_URL` or `VERCEL_URL` is set, and `FLEETGLASS_REPLY_SECRET` or `SLACK_SIGNING_SECRET` is set, the Slack brief includes `reply` (`url`, `exp`, `sig`). `POST /api/slack/reply` checks that HMAC and posts with the bot token. The routine must POST there. It must not use a Slack connector. GitHub briefs have no `reply`. An unset public URL omits `reply` and still wakes.
 
 ## GitHub
 
@@ -89,7 +94,9 @@ Unset secret is 503 `github_unconfigured`. A bad signature is 401 `invalid_signa
 | Variable | Role |
 | --- | --- |
 | `SLACK_SIGNING_SECRET` | Verifies Slack. Required for `POST /api/slack/events`. |
-| `SLACK_BOT_TOKEN` | Optional permalink lookup. |
+| `SLACK_BOT_TOKEN` | Optional permalink, thinking status, and `chat.postMessage`. |
+| `FLEETGLASS_PUBLIC_URL` | Optional. Base URL for the Slack reply callback. `VERCEL_URL` is the fallback. |
+| `FLEETGLASS_REPLY_SECRET` | Optional. HMAC key for `POST /api/slack/reply`. Falls back to `SLACK_SIGNING_SECRET`. |
 | `SLACK_MENTION_USER_ID` | Only this Slack user wakes Richard. |
 | `SLACK_BOT_USER_ID` | Optional bot id check. |
 | `GITHUB_WEBHOOK_SECRET` | Verifies GitHub. Required for the webhook. |
@@ -120,4 +127,4 @@ npm run test:wake
 npm run build
 ```
 
-`GET /api/health` returns `{ "ok": true }`. `/` lists the three routes. `npm run test:rls` still needs `DATABASE_URL` pointed at `fleetglass_app` and the old task tables.
+`GET /api/health` returns `{ "ok": true }`. `/` lists the routes. `npm run test:rls` still needs `DATABASE_URL` pointed at `fleetglass_app` and the old task tables.

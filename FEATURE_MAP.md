@@ -19,8 +19,9 @@ GitHub PR comment
 | --- | --- | --- |
 | Health | `GET /api/health` | `{ "ok": true }` |
 | Slack events | `POST /api/slack/events` | `src/server/listeners.ts` `receiveSlackEvent` |
+| Slack reply | `POST /api/slack/reply` | `receiveSlackReply`. Signed callback for a Slack wake. |
 | GitHub webhook | `POST /api/github/webhook` | `receiveGithubWebhook` |
-| Home | `GET /` | Names the three routes |
+| Home | `GET /` | Names the routes |
 
 ## Slack
 
@@ -32,7 +33,9 @@ GitHub PR comment
 | Owner | `SLACK_MENTION_USER_ID`, default `U08C40K4FHN`. Anyone else is `ignored: owner`. |
 | Bot id | Optional `SLACK_BOT_USER_ID`. When set, and the payload lists bot user ids, that id must be one of them. |
 | Permalink | `SLACK_BOT_TOKEN` calls `chat.getPermalink`. Without the token, the URL is `https://slack.com/archives/{channel}/p{ts}`. The wake still runs. |
-| Thinking | When `SLACK_BOT_TOKEN` is set and the mention will wake Richard, Fleetglass fires `assistant.threads.setStatus` with status `is thinking...`. Slack renders that as "{bot} is thinking...". `thread_ts` is the event thread, or the message `ts` when the mention is not already in a thread. The call is not awaited. Failures never change the wake HTTP result. An unset token skips it. Session channels return `method_not_supported_for_channel_type`; Fleetglass then calls `agents.sessions.setStatus` with `processing` and no `thread_ts`. That fallback is a loading state, not the words "is thinking...". |
+| Thinking | When `SLACK_BOT_TOKEN` is set and the mention will wake Richard, or when the mention is a ping, Fleetglass calls `assistant.threads.setStatus` with status `is thinking...`. Slack renders that as "{bot} is thinking...". `thread_ts` is the event thread, or the message `ts` when the mention is not already in a thread. On a wake the call is not awaited. On a ping it is awaited before `chat.postMessage`. Failures never change the HTTP result. An unset token skips it. Session channels return `method_not_supported_for_channel_type`; Fleetglass then calls `agents.sessions.setStatus` with `processing` and no `thread_ts`. That fallback is a loading state, not the words "is thinking...". |
+| Ping | After the owner and bot checks, Fleetglass strips Slack mention tokens (`<@U...>` and `<!channel>`). If the remaining text is exactly `ping`, any case, it does not call `deliverRichardWake`. It sets the thinking status, then `chat.postMessage` with `SLACK_BOT_TOKEN` and JSON `{ "channel", "text": "pong", "thread_ts" }`. No `username`, `icon_emoji`, `icon_url`, or `as_user`. HTTP 200 `{ "ok": true, "woke": false, "answered": "pong" }`. A post failure is logged, the status is cleared, and the event still returns 200. |
+| Status clear | A successful `chat.postMessage` from this bot clears the Slack status. If `chat.postMessage` throws or returns `ok: false`, Fleetglass calls `assistant.threads.setStatus` with `status: ""` on the same `channel_id` and `thread_ts`. When the thinking status used the session fallback, it calls `agents.sessions.setStatus` with `status: ""` and no `thread_ts` instead. Clear errors are logged. |
 
 ## GitHub
 
@@ -64,6 +67,11 @@ Slack brief:
     "event_id": "Ev9",
     "team_id": "T1",
     "channel_id": "C9"
+  },
+  "reply": {
+    "url": "https://fleetglass.example/api/slack/reply",
+    "exp": 1710001801,
+    "sig": "<hmac sha256 hex>"
   }
 }
 ```
@@ -91,6 +99,26 @@ GitHub brief:
 | 200 `{ "ok": true, "woke": false, "deduped": true }` | Key already claimed |
 | 200 `{ "ok": true, "woke": false, "reason": "no_handoff" }` | `CHIEF_HANDOFF_URL` unset. Key is not stored. |
 | 502 `{ "error": "wake_failed" }` | POST failed or Richard was not 2xx. Key is released. |
+
+`reply` is present only on a Slack brief, and only when a public base URL and a reply secret both exist. The base is `FLEETGLASS_PUBLIC_URL` with no trailing slash, otherwise `https://` plus `VERCEL_URL`. The secret is `FLEETGLASS_REPLY_SECRET` when set, otherwise `SLACK_SIGNING_SECRET`. `exp` is a Unix second, 15 minutes ahead. `sig` is HMAC-SHA256 hex over `JSON.stringify(["v1", channel_id, thread_ts, exp])`. The text of the later reply is not inside the HMAC. GitHub briefs omit `reply`. If the base URL is unset, the wake still runs and `reply` is omitted.
+
+Richard's routine posts the final Slack message to `reply.url`. It must not use a Slack connector. The body is `{ "text", "channel_id", "thread_ts", "exp", "sig" }` with the `channel_id`, `thread_ts`, `exp`, and `sig` from the brief. Fleetglass checks the HMAC, rejects an expired `exp`, and rejects a signature it has already accepted in this process. On success it calls `chat.postMessage` with the bot token in that thread only. A different channel or thread does not match the signature.
+
+| Reply response | When |
+| --- | --- |
+| 200 `{ "ok": true, "posted": true }` | Slack `chat.postMessage` returned `ok: true` |
+| 400 | Body is not JSON, channel or thread is missing, text is empty, or `exp` is not an integer |
+| 401 `{ "error": "expired" }` or `{ "error": "invalid_signature" }` | Past `exp`, or HMAC mismatch |
+| 403 `{ "error": "reused" }` | This process already posted with that signature |
+| 502 `{ "error": "slack_post_failed" }` | `chat.postMessage` threw or returned `ok: false`. The signature can be reused until `exp`. Status is cleared. |
+| 503 `{ "error": "slack_unconfigured" }` | `SLACK_BOT_TOKEN` unset |
+| 503 `{ "error": "reply_unconfigured" }` | No reply secret |
+
+This route is not the Slack event ack. Its errors do not change `POST /api/slack/events`.
+
+## Slack app
+
+Turn on Agents & AI Apps so thinking status can show. Add the bot scope `chat:write`. Invite the bot to the channel. Reinstall the app to the workspace after the scope change. `SLACK_BOT_TOKEN` must be the bot token from that install. Fleetglass never posts as `@Cursor` and never posts through a user connection.
 
 ## Dedupe
 

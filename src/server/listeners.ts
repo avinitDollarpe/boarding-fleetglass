@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { githubMentioned, githubMentionTargets, githubRepoInScope, SLACK_MENTION_USER_DEFAULT } from "@/lib/bots";
 import { normalizeIntake } from "@/lib/intake";
-import { parseSlackEvent, verifySlackSignature, type SlackEventBody } from "@/lib/slack-event";
+import { isExactSlackPing, parseSlackEvent, verifySlackSignature, type SlackEventBody } from "@/lib/slack-event";
+import { claimSlackReply, mintSlackReply, releaseSlackReply, verifySlackReplyRequest } from "@/lib/slack-reply";
 import { deliverRichardWake, type RichardBrief, type WakeDelivery } from "@/server/wake";
 
 function safeEqual(a: string, b: string): boolean {
@@ -26,6 +27,8 @@ function wakeHttp(delivery: WakeDelivery): { status: number; body: Record<string
 const SLACK_THINKING_STATUS = "is thinking...";
 const SLACK_STATUS_TIMEOUT_MS = 2500;
 
+type SlackStatusSurface = "thread" | "session" | "none";
+
 function showSlackThinking(token: string, channel: string, threadTs: string): void {
   void postSlackThinking(token, channel, threadTs);
 }
@@ -44,28 +47,90 @@ async function slackApi(
   return (await response.json()) as { ok?: boolean; error?: string };
 }
 
-/** Fire-and-forget. A status failure must not change the wake response. */
-async function postSlackThinking(token: string, channel: string, threadTs: string): Promise<void> {
+/** Fire-and-forget on a wake. A status failure must not change the wake response. */
+async function postSlackThinking(token: string, channel: string, threadTs: string): Promise<SlackStatusSurface> {
   try {
     const body = await slackApi(token, "assistant.threads.setStatus", {
       channel_id: channel,
       thread_ts: threadTs,
       status: SLACK_THINKING_STATUS,
     });
-    if (body.ok) return;
+    if (body.ok) return "thread";
     if (body.error !== "method_not_supported_for_channel_type") {
       console.error("slack thinking status failed", body.error ?? "not_ok");
-      return;
+      return "none";
     }
     // Session channels reject assistant.threads.setStatus. Omit thread_ts there.
     const fallback = await slackApi(token, "agents.sessions.setStatus", {
       channel_id: channel,
       status: "processing",
     });
-    if (!fallback.ok) console.error("slack thinking status failed", fallback.error ?? "not_ok");
+    if (!fallback.ok) {
+      console.error("slack thinking status failed", fallback.error ?? "not_ok");
+      return "none";
+    }
+    return "session";
   } catch (error) {
     console.error("slack thinking status failed", error instanceof Error ? error.message : "unknown");
+    return "none";
   }
+}
+
+async function postSlackBotMessage(token: string, channel: string, threadTs: string, text: string): Promise<boolean> {
+  try {
+    const body = await slackApi(token, "chat.postMessage", {
+      channel,
+      text,
+      thread_ts: threadTs,
+    });
+    if (body.ok) return true;
+    console.error("slack postMessage failed", body.error ?? "not_ok");
+    return false;
+  } catch (error) {
+    console.error("slack postMessage failed", error instanceof Error ? error.message : "unknown");
+    return false;
+  }
+}
+
+async function clearSlackStatus(
+  token: string,
+  channel: string,
+  threadTs: string,
+  surface: "thread" | "session",
+): Promise<void> {
+  try {
+    if (surface === "session") {
+      const body = await slackApi(token, "agents.sessions.setStatus", { channel_id: channel, status: "" });
+      if (!body.ok) console.error("slack status clear failed", body.error ?? "not_ok");
+      return;
+    }
+    const body = await slackApi(token, "assistant.threads.setStatus", {
+      channel_id: channel,
+      thread_ts: threadTs,
+      status: "",
+    });
+    if (body.ok) return;
+    if (body.error === "method_not_supported_for_channel_type") {
+      const fallback = await slackApi(token, "agents.sessions.setStatus", { channel_id: channel, status: "" });
+      if (!fallback.ok) console.error("slack status clear failed", fallback.error ?? "not_ok");
+      return;
+    }
+    console.error("slack status clear failed", body.error ?? "not_ok");
+  } catch (error) {
+    console.error("slack status clear failed", error instanceof Error ? error.message : "unknown");
+  }
+}
+
+async function answerSlackPing(token: string, channel: string, threadTs: string) {
+  if (!token) {
+    console.error("slack pong skipped", "no_token");
+    return { status: 200, body: { ok: true, woke: false, answered: "pong" } };
+  }
+  // Status must finish before pong. A setStatus that lands after the message stays on screen.
+  const surface = await postSlackThinking(token, channel, threadTs);
+  const posted = await postSlackBotMessage(token, channel, threadTs, "pong");
+  if (!posted) await clearSlackStatus(token, channel, threadTs, surface === "session" ? "session" : "thread");
+  return { status: 200, body: { ok: true, woke: false, answered: "pong" } };
 }
 
 async function slackPermalink(token: string, channel: string, ts: string): Promise<string> {
@@ -115,6 +180,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
   }
 
   const token = process.env.SLACK_BOT_TOKEN?.trim() || "";
+  if (isExactSlackPing(decision.text)) return answerSlackPing(token, decision.channel, decision.threadTs);
   if (token) showSlackThinking(token, decision.channel, decision.threadTs);
   const permalink = token
     ? await slackPermalink(token, decision.channel, decision.ts)
@@ -135,6 +201,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
   });
   if (!intake.ok || !intake.value.idempotencyKey) return { status: 200, body: { ok: true, ignored: "empty" } };
 
+  const reply = mintSlackReply(decision.channel, decision.threadTs);
   const brief: RichardBrief = {
     type: "fleetglass.wake",
     source: "slack",
@@ -147,8 +214,30 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
       team_id: decision.teamId,
       channel_id: decision.channel,
     },
+    ...(reply ? { reply } : {}),
   };
   return wakeHttp(await deliverRichardWake(brief, intake.value.idempotencyKey));
+}
+
+export async function receiveSlackReply(raw: string) {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw) as unknown;
+  } catch {
+    return { status: 400, body: { error: "invalid_json" } };
+  }
+  const verdict = verifySlackReplyRequest(payload);
+  if (!verdict.ok) return { status: verdict.status, body: { error: verdict.error } };
+  const token = process.env.SLACK_BOT_TOKEN?.trim() || "";
+  if (!token) return { status: 503, body: { error: "slack_unconfigured" } };
+  if (!claimSlackReply(verdict.sig, verdict.exp)) return { status: 403, body: { error: "reused" } };
+  const posted = await postSlackBotMessage(token, verdict.channelId, verdict.threadTs, verdict.text);
+  if (!posted) {
+    releaseSlackReply(verdict.sig);
+    await clearSlackStatus(token, verdict.channelId, verdict.threadTs, "thread");
+    return { status: 502, body: { error: "slack_post_failed" } };
+  }
+  return { status: 200, body: { ok: true, posted: true } };
 }
 
 export async function receiveGithubWebhook(raw: string, signature: string | null, eventName: string | null) {

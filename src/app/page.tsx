@@ -13,6 +13,9 @@ export default function HomePage() {
         <li>
           <code>POST /api/github/webhook</code>
         </li>
+        <li>
+          <code>POST /api/slack/reply</code>
+        </li>
       </ul>
     </main>
   );
