@@ -2,6 +2,10 @@ import type { ThreadWatch } from "@/lib/thread-watch";
 import { db } from "@/server/db";
 
 const memory = new Map<string, ThreadWatch>();
+const lastSeen = new Map<string, number>();
+
+/** A watch with no mention or follow-up wake for this long stops waking Richard. */
+export const THREAD_WATCH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function watchKey(channelId: string, threadTs: string): string {
   return `${channelId}\n${threadTs}`;
@@ -96,8 +100,11 @@ export async function getThreadWatch(channelId: string, threadTs: string): Promi
   return memory.get(watchKey(channelId, threadTs)) ?? null;
 }
 
-/** Auto-watch after a mention wake. Keeps an existing watch, refs included. */
-export async function ensureThreadWatch(input: { channelId: string; threadTs: string; ownerId: string }): Promise<void> {
+/** Auto-watch after a mention wake. Keeps an existing watch, refs included, and restarts its expiry. */
+export async function ensureThreadWatch(
+  input: { channelId: string; threadTs: string; ownerId: string },
+  now = Date.now(),
+): Promise<void> {
   const key = watchKey(input.channelId, input.threadTs);
   const client = db();
   if (client) {
@@ -105,7 +112,7 @@ export async function ensureThreadWatch(input: { channelId: string; threadTs: st
       await client.query(
         `INSERT INTO thread_watches (channel_id, thread_ts, owner_id)
          VALUES ($1, $2, $3)
-         ON CONFLICT (channel_id, thread_ts) DO NOTHING`,
+         ON CONFLICT (channel_id, thread_ts) DO UPDATE SET last_seen_at = now()`,
         [input.channelId, input.threadTs, input.ownerId],
       );
     } catch (error) {
@@ -114,6 +121,37 @@ export async function ensureThreadWatch(input: { channelId: string; threadTs: st
     }
   }
   if (!memory.has(key)) {
-    memory.set(key, { ...input, refs: [], createdAt: new Date().toISOString() });
+    memory.set(key, { ...input, refs: [], createdAt: new Date(now).toISOString() });
   }
+  lastSeen.set(key, now);
+}
+
+/** True when the thread is watched and not expired. A live watch restarts its expiry. */
+export async function touchThreadWatch(channelId: string, threadTs: string, now = Date.now()): Promise<boolean> {
+  const key = watchKey(channelId, threadTs);
+  const client = db();
+  if (client) {
+    try {
+      const touched = await client.query(
+        `UPDATE thread_watches SET last_seen_at = now()
+         WHERE channel_id = $1 AND thread_ts = $2 AND last_seen_at > now() - $3 * interval '1 millisecond'
+         RETURNING 1`,
+        [channelId, threadTs, THREAD_WATCH_TTL_MS],
+      );
+      if (touched.rowCount) {
+        lastSeen.set(key, now);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== "42P01") console.error("thread watch touch failed", code ?? "unknown");
+    }
+  }
+  if (!memory.has(key)) return false;
+  // Explicit watches saved before any wake count from their creation.
+  const seen = lastSeen.get(key) ?? Date.parse(memory.get(key)?.createdAt ?? "");
+  if (!(now - seen < THREAD_WATCH_TTL_MS)) return false;
+  lastSeen.set(key, now);
+  return true;
 }

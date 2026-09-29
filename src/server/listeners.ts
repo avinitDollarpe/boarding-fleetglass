@@ -10,7 +10,7 @@ import {
   verifySlackReplyRequest,
 } from "@/lib/slack-reply";
 import { parseThreadWatchAsk, toSlackWatchBrief } from "@/lib/thread-watch";
-import { ensureThreadWatch, getThreadWatch, saveThreadWatch } from "@/server/watches";
+import { ensureThreadWatch, saveThreadWatch, touchThreadWatch } from "@/server/watches";
 import { deliverRichardWake, type RichardBrief, type WakeDelivery } from "@/server/wake";
 
 function safeEqual(a: string, b: string): boolean {
@@ -189,7 +189,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
   }
 
   const followup = decision.kind === "thread_reply";
-  if (followup && !(await getThreadWatch(decision.channel, decision.threadTs))) {
+  if (followup && !(await touchThreadWatch(decision.channel, decision.threadTs))) {
     console.log("skip_unwatched", decision.channel, decision.threadTs, decision.ts);
     return { status: 200, body: { ok: true, ignored: "unwatched" } };
   }
@@ -253,7 +253,7 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
   if (delivery.ok && delivery.deduped) console.log("skip_dedupe", ...where);
   if (delivery.ok && delivery.woke) {
     console.log(followup ? "thread_followup_wake" : "mention_wake", ...where);
-    if (!followup && !savedWatch) {
+    if (!followup) {
       await ensureThreadWatch({ channelId: decision.channel, threadTs: decision.threadTs, ownerId: decision.user });
       console.log("auto_watch_upsert", decision.channel, decision.threadTs);
     }

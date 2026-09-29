@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { proactiveSlackReply, SLACK_REPLY_SKEW_SEC, SLACK_REPLY_TTL_SEC } from "../src/lib/slack-reply";
 import { parseThreadWatchAsk, threadWatchAck } from "../src/lib/thread-watch";
 import { receiveGithubWebhook, receiveSlackEvent, receiveSlackReply } from "../src/server/listeners";
-import { getThreadWatch } from "../src/server/watches";
+import { ensureThreadWatch, getThreadWatch, THREAD_WATCH_TTL_MS, touchThreadWatch } from "../src/server/watches";
 
 const slackSecret = "slack-secret";
 const githubSecret = "github-secret";
@@ -1040,6 +1040,15 @@ assert.equal(handoffs(), beforeSkips);
 
 const dmMention = await postMention({ text: "<@UBOT> hi", ts: "1790000000.000500", channel: "D123" });
 assert.deepEqual(dmMention.body, { ok: true, ignored: "dm" });
+
+// Watches expire after the TTL with no activity. A new mention wake revives them.
+const later = Date.now() + THREAD_WATCH_TTL_MS + 1000;
+assert.equal(await touchThreadWatch("C77", "1790000000.000100"), true);
+assert.equal(await touchThreadWatch("C77", "1790000000.000100", later), false);
+assert.equal(await touchThreadWatch("C77", "1790000000.000100", later + 1), false);
+await ensureThreadWatch({ channelId: "C77", threadTs: "1790000000.000100", ownerId: "U08C40K4FHN" }, later);
+assert.equal(await touchThreadWatch("C77", "1790000000.000100", later + 1), true);
+assert.equal(await touchThreadWatch("C77", "1790000000.000999"), false);
 
 // Auto-watch keeps refs from an explicit watch.
 await postMention({ text: "<@UBOT> status?", ts: "1789001537.017702", channel: "C09DTUTJ1CP", thread_ts: "1789001537.017620" });
