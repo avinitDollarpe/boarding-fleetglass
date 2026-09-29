@@ -19,6 +19,7 @@ export type SlackEventBody = {
   authorizations?: { user_id?: string; is_bot?: boolean; team_id?: string }[];
   event?: {
     type?: string;
+    subtype?: string;
     user?: string;
     bot_id?: string;
     text?: string;
@@ -34,6 +35,7 @@ export type SlackDecision =
   | { action: "ignore"; reason: string }
   | {
       action: "ingest";
+      kind: "mention" | "thread_reply";
       teamId: string;
       apiAppId: string | null;
       botUserIds: string[];
@@ -78,13 +80,25 @@ export function parseSlackEvent(payload: SlackEventBody): SlackDecision {
     return payload.challenge ? { action: "challenge", challenge: payload.challenge } : { action: "ignore", reason: "challenge" };
   }
   const event = payload.event;
-  if (!event || event.type !== "app_mention") return { action: "ignore", reason: "event" };
-  if (event.bot_id) return { action: "ignore", reason: "bot" };
+  if (!event || (event.type !== "app_mention" && event.type !== "message")) return { action: "ignore", reason: "event" };
+  const kind = event.type === "app_mention" ? "mention" : "thread_reply";
+  if (event.bot_id || event.subtype === "bot_message") return { action: "ignore", reason: "bot" };
+  // Plain user messages only. Edits, deletes, joins, and other subtypes never wake.
+  if (kind === "thread_reply" && event.subtype && event.subtype !== "thread_broadcast") {
+    return { action: "ignore", reason: "subtype" };
+  }
   if (!event.user) return { action: "ignore", reason: "mentioner" };
   const hint = slackRouteHint(payload);
   if (!hint || !event.ts || !event.channel) return { action: "ignore", reason: "empty" };
+  if (kind === "thread_reply") {
+    if (!event.thread_ts || event.thread_ts === event.ts) return { action: "ignore", reason: "not_thread_reply" };
+    if (hint.botUserIds.includes(event.user)) return { action: "ignore", reason: "bot" };
+    // Slack also sends app_mention for this message. That path owns it.
+    if (hint.botUserIds.some((id) => event.text?.includes(`<@${id}>`))) return { action: "ignore", reason: "mention" };
+  }
   return {
     action: "ingest",
+    kind,
     teamId: hint.teamId,
     apiAppId: hint.apiAppId,
     botUserIds: hint.botUserIds,

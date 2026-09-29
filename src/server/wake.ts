@@ -18,6 +18,8 @@ export type RichardBrief =
       };
       reply?: SlackReplyGrant;
       watch?: SlackWatchBrief;
+      /** Present when a human replied in a watched thread without a mention. */
+      followup?: { thread_ts: string };
     }
   | {
       type: "fleetglass.wake";

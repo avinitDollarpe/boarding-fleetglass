@@ -95,3 +95,25 @@ export async function getThreadWatch(channelId: string, threadTs: string): Promi
   }
   return memory.get(watchKey(channelId, threadTs)) ?? null;
 }
+
+/** Auto-watch after a mention wake. Keeps an existing watch, refs included. */
+export async function ensureThreadWatch(input: { channelId: string; threadTs: string; ownerId: string }): Promise<void> {
+  const key = watchKey(input.channelId, input.threadTs);
+  const client = db();
+  if (client) {
+    try {
+      await client.query(
+        `INSERT INTO thread_watches (channel_id, thread_ts, owner_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (channel_id, thread_ts) DO NOTHING`,
+        [input.channelId, input.threadTs, input.ownerId],
+      );
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== "42P01") console.error("thread watch save failed", code ?? "unknown");
+    }
+  }
+  if (!memory.has(key)) {
+    memory.set(key, { ...input, refs: [], createdAt: new Date().toISOString() });
+  }
+}

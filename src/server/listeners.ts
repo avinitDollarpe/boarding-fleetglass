@@ -10,7 +10,7 @@ import {
   verifySlackReplyRequest,
 } from "@/lib/slack-reply";
 import { parseThreadWatchAsk, toSlackWatchBrief } from "@/lib/thread-watch";
-import { saveThreadWatch } from "@/server/watches";
+import { ensureThreadWatch, getThreadWatch, saveThreadWatch } from "@/server/watches";
 import { deliverRichardWake, type RichardBrief, type WakeDelivery } from "@/server/wake";
 
 function safeEqual(a: string, b: string): boolean {
@@ -173,19 +173,30 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
 
   const decision = parseSlackEvent(payload);
   if (decision.action !== "ingest") {
+    if (decision.action === "ignore" && decision.reason === "bot") console.log("skip_bot", payload.event?.ts ?? "");
     return { status: 200, body: { ok: true, ignored: decision.action === "ignore" ? decision.reason : "event" } };
   }
 
+  const botUserId = process.env.SLACK_BOT_USER_ID?.trim() || "";
+  if (botUserId && decision.user === botUserId) {
+    console.log("skip_bot", decision.ts);
+    return { status: 200, body: { ok: true, ignored: "bot" } };
+  }
   const mentionUser = process.env.SLACK_MENTION_USER_ID?.trim() || SLACK_MENTION_USER_DEFAULT;
   if (decision.user !== mentionUser) return { status: 200, body: { ok: true, ignored: "owner" } };
-  const botUserId = process.env.SLACK_BOT_USER_ID?.trim() || "";
   if (botUserId && decision.botUserIds.length > 0 && !decision.botUserIds.includes(botUserId)) {
     return { status: 200, body: { ok: true, ignored: "bot" } };
   }
 
+  const followup = decision.kind === "thread_reply";
+  if (followup && !(await getThreadWatch(decision.channel, decision.threadTs))) {
+    console.log("skip_unwatched", decision.channel, decision.threadTs, decision.ts);
+    return { status: 200, body: { ok: true, ignored: "unwatched" } };
+  }
+
   const token = process.env.SLACK_BOT_TOKEN?.trim() || "";
-  if (isExactSlackPing(decision.text)) return answerSlackPing(token, decision.channel, decision.threadTs);
-  const watchAsk = parseThreadWatchAsk(decision.text);
+  if (!followup && isExactSlackPing(decision.text)) return answerSlackPing(token, decision.channel, decision.threadTs);
+  const watchAsk = followup ? null : parseThreadWatchAsk(decision.text);
   const savedWatch = watchAsk
     ? await saveThreadWatch({
         channelId: decision.channel,
@@ -234,8 +245,19 @@ export async function receiveSlackEvent(raw: string, timestamp: string | null, s
     },
     ...(reply ? { reply } : {}),
     ...(savedWatch ? { watch: toSlackWatchBrief(savedWatch) } : {}),
+    ...(followup ? { followup: { thread_ts: decision.threadTs } } : {}),
   };
+  // Same key as the app_mention for this message ts, so one Slack message wakes at most once.
   const delivery = await deliverRichardWake(brief, intake.value.idempotencyKey);
+  const where = [decision.channel, decision.threadTs, decision.ts];
+  if (delivery.ok && delivery.deduped) console.log("skip_dedupe", ...where);
+  if (delivery.ok && delivery.woke) {
+    console.log(followup ? "thread_followup_wake" : "mention_wake", ...where);
+    if (!followup && !savedWatch) {
+      await ensureThreadWatch({ channelId: decision.channel, threadTs: decision.threadTs, ownerId: decision.user });
+      console.log("auto_watch_upsert", decision.channel, decision.threadTs);
+    }
+  }
   if (thinking && !callbackCanLand && delivery.ok && delivery.woke) {
     // Clear only after setStatus settles. A later setStatus stays on screen.
     const surface = await thinking;

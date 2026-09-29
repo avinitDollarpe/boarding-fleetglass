@@ -970,7 +970,75 @@ assert.deepEqual(rewatch.body, { ok: true, woke: true, deduped: false });
 const restored = await getThreadWatch("C09DTUTJ1CP", "1789001537.017620");
 assert.deepEqual(restored?.refs, ["DollarPe-Infra/app#3"]);
 assert.equal(restored?.createdAt, stored?.createdAt);
-assert.equal(await getThreadWatch("C9", "1710000000.000010"), null);
+// A plain mention wake auto-watches its thread with no refs.
+assert.deepEqual((await getThreadWatch("C9", "1710000000.000010"))?.refs, []);
+assert.equal(await getThreadWatch("C9", "1710000000.999999"), null);
+
+function slackMessage(partial: { text: string; ts: string; thread_ts?: string; user?: string; bot_id?: string; subtype?: string }) {
+  return JSON.stringify({
+    type: "event_callback",
+    team_id: "T1",
+    event_id: `EvMsg${partial.ts}`,
+    authorizations: [{ user_id: "UBOT", is_bot: true }],
+    event: { type: "message", channel: "C77", user: "U08C40K4FHN", ...partial },
+  });
+}
+async function postMessage(partial: Parameters<typeof slackMessage>[0]) {
+  const raw = slackMessage(partial);
+  return receiveSlackEvent(raw, ts, slackSig(raw, ts));
+}
+
+const unwatched = await postMessage({ text: "any update?", ts: "1790000000.000200", thread_ts: "1790000000.000100" });
+assert.deepEqual(unwatched.body, { ok: true, ignored: "unwatched" });
+
+const rootMention = await postMention({ text: "<@UBOT> look at CE-40", ts: "1790000000.000100", channel: "C77" });
+assert.deepEqual(rootMention.body, { ok: true, woke: true, deduped: false });
+assert.deepEqual((await getThreadWatch("C77", "1790000000.000100"))?.refs, []);
+
+const beforeFollowup = handoffs();
+const followupRes = await postMessage({ text: "any update?", ts: "1790000000.000300", thread_ts: "1790000000.000100" });
+assert.deepEqual(followupRes.body, { ok: true, woke: true, deduped: false });
+assert.equal(handoffs(), beforeFollowup + 1);
+const followupBrief = calls.filter((call) => call.url === "http://richard.test/wake").at(-1)?.body as {
+  text: string;
+  author: string;
+  ids: { slack_ts: string; channel_id: string };
+  reply?: { channel_id: string; thread_ts: string };
+  followup?: { thread_ts: string };
+  watch?: unknown;
+};
+assert.equal(followupBrief.text, "any update?");
+assert.equal(followupBrief.author, "U08C40K4FHN");
+assert.equal(followupBrief.ids.slack_ts, "1790000000.000300");
+assert.equal(followupBrief.ids.channel_id, "C77");
+assert.deepEqual(followupBrief.followup, { thread_ts: "1790000000.000100" });
+assert.equal(followupBrief.reply?.thread_ts, "1790000000.000100");
+assert.equal(followupBrief.watch, undefined);
+
+// Slack retry of the same message ts does not wake twice.
+const retriedFollowup = await postMessage({ text: "any update?", ts: "1790000000.000300", thread_ts: "1790000000.000100" });
+assert.deepEqual(retriedFollowup.body, { ok: true, woke: false, deduped: true });
+
+// Loops and noise never wake.
+const skips: [Parameters<typeof slackMessage>[0], string][] = [
+  [{ text: "Richard says hi", ts: "1790000000.000400", thread_ts: "1790000000.000100", bot_id: "B1" }, "bot"],
+  [{ text: "Richard says hi", ts: "1790000000.000401", thread_ts: "1790000000.000100", user: "UBOT" }, "bot"],
+  [{ text: "hi", ts: "1790000000.000402", thread_ts: "1790000000.000100", subtype: "bot_message" }, "bot"],
+  [{ text: "edited", ts: "1790000000.000403", thread_ts: "1790000000.000100", subtype: "message_changed" }, "subtype"],
+  [{ text: "joined", ts: "1790000000.000404", thread_ts: "1790000000.000100", subtype: "channel_join" }, "subtype"],
+  [{ text: "<@UBOT> again", ts: "1790000000.000405", thread_ts: "1790000000.000100" }, "mention"],
+  [{ text: "top level", ts: "1790000000.000406" }, "not_thread_reply"],
+  [{ text: "stranger", ts: "1790000000.000407", thread_ts: "1790000000.000100", user: "U000" }, "owner"],
+];
+const beforeSkips = handoffs();
+for (const [partial, reason] of skips) {
+  assert.deepEqual((await postMessage(partial)).body, { ok: true, ignored: reason }, reason);
+}
+assert.equal(handoffs(), beforeSkips);
+
+// Auto-watch keeps refs from an explicit watch.
+await postMention({ text: "<@UBOT> status?", ts: "1789001537.017702", channel: "C09DTUTJ1CP", thread_ts: "1789001537.017620" });
+assert.deepEqual((await getThreadWatch("C09DTUTJ1CP", "1789001537.017620"))?.refs, ["DollarPe-Infra/app#3"]);
 
 console.log("wake checks ok");
 }

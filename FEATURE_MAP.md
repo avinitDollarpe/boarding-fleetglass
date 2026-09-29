@@ -6,6 +6,7 @@ Fleetglass is an API. Slack and GitHub wake Richard. Postgres stores dedupe keys
 
 ```
 Slack app_mention
+Slack thread reply in a watched thread
 GitHub PR comment
         → signature and filter
         → fleetglass.wake
@@ -29,13 +30,15 @@ GitHub PR comment
 | --- | --- |
 | Signing | `SLACK_SIGNING_SECRET` and `X-Slack-Signature`. Unset secret is 503 `slack_unconfigured`. Bad signature is 401 `invalid_signature`. |
 | Challenge | `url_verification` returns 200 `{ "challenge": "<value>" }`. |
-| Event | `app_mention` only. Other events return 200 `ignored`. |
+| Event | `app_mention`, plus `message` replies in a watched thread (see Follow-up). Other events return 200 `ignored`. |
 | Owner | `SLACK_MENTION_USER_ID`, default `U08C40K4FHN`. Anyone else is `ignored: owner`. |
 | Bot id | Optional `SLACK_BOT_USER_ID`. When set, and the payload lists bot user ids, that id must be one of them. |
 | Permalink | `SLACK_BOT_TOKEN` calls `chat.getPermalink`. Without the token, the URL is `https://slack.com/archives/{channel}/p{ts}`. The wake still runs. |
 | Thinking | When `SLACK_BOT_TOKEN` is set and the mention will wake Richard, or when the mention is a ping, Fleetglass calls `assistant.threads.setStatus` with status `is thinking...`. Slack renders that as "{bot} is thinking...". `thread_ts` is the event thread, or the message `ts` when the mention is not already in a thread. On a wake the call is not awaited. On a ping it is awaited before `chat.postMessage`. Failures never change the HTTP result. An unset token skips it. Session channels return `method_not_supported_for_channel_type`; Fleetglass then calls `agents.sessions.setStatus` with `processing` and no `thread_ts`. That fallback is a loading state, not the words "is thinking...". |
 | Ping | After the owner and bot checks, Fleetglass strips Slack mention tokens (`<@U...>` and `<!channel>`). If the remaining text is exactly `ping`, any case, it does not call `deliverRichardWake`. It sets the thinking status, then `chat.postMessage` with `SLACK_BOT_TOKEN` and JSON `{ "channel", "text": "pong", "thread_ts" }`. No `username`, `icon_emoji`, `icon_url`, or `as_user`. HTTP 200 `{ "ok": true, "woke": false, "answered": "pong" }`. A post failure is logged, the status is cleared, and the event still returns 200. |
 | Watch | After ping, `parseThreadWatchAsk` strips the same mention tokens. The remaining text, with `CE-<digits>`, `github.com/<owner>/<repo>/pull/<n>`, and `<owner>/<repo>#<n>` removed, must be one of: `watch this thread`, `watch the thread`, `watch this`, `keep this thread updated`, `keep this thread up to date`, `keep this updated`, `keep me updated`, `keep me updated on this thread`, `follow this thread`. A leading `please`, `can you`, or `could you` is ignored. A trailing `and`, `for`, or `please` is ignored. Anything else is a normal wake. Fleetglass stores `channel_id`, `thread_ts`, those refs, the Slack user id, and `created_at`. It does not read thread history. It does not call `chat.postMessage` for the ack. The Slack brief includes `watch` (`channel_id`, `thread_ts`, `refs`, `owner_id`, `created_at`, `ack`). Richard posts `watch.ack` with the wake `reply` grant. If `reply` is omitted, he signs a proactive body whose `text` is `watch.ack`. A later material update uses the proactive post above, same channel and thread. Re-watching the same channel and thread replaces `refs` and `owner_id` and keeps `created_at`. |
+| Auto-watch | After a mention wake returns `woke: true`, Fleetglass inserts `(channel_id, thread_ts)` into `thread_watches` with no refs. `thread_ts` is the parent thread, or the mention `ts` when the mention starts the thread. An existing row, including one from a watch phrase, is kept as is. The brief does not gain `watch`, so Richard does not start status pushes. Log `auto_watch_upsert`. |
+| Follow-up | A `message` event wakes Richard when all hold: `thread_ts` is set and differs from `ts`; no `bot_id`; no `subtype`, or `thread_broadcast`; `user` is not a payload bot user id or `SLACK_BOT_USER_ID`; the text does not mention a payload bot user id (the `app_mention` path owns that message); `user` is `SLACK_MENTION_USER_ID`; and `(channel, thread_ts)` is in `thread_watches`. Ping and watch phrases are not parsed. The brief is the normal Slack brief, with `ids.slack_ts` as the reply ts and a `reply` grant for the thread, plus `followup: { "thread_ts" }`. The idempotency key is the same `slack:{team}:{channel}:{slack_ts}` as a mention, so one Slack message wakes at most once. Skips return 200 `ignored`: `bot`, `subtype`, `not_thread_reply`, `mention`, `owner`, `unwatched`. Logs: `thread_followup_wake`, `skip_bot`, `skip_unwatched`, `skip_dedupe`. Richard's own `/api/slack/reply` posts come back as bot messages and are skipped. Before this deploy, every follow-up needed a fresh mention. |
 | Status clear | A successful `chat.postMessage` from this bot clears the Slack status. If `chat.postMessage` throws or returns `ok: false`, Fleetglass calls `assistant.threads.setStatus` with `status: ""` on the same `channel_id` and `thread_ts`. When the thinking status used the session fallback, it calls `agents.sessions.setStatus` with `status: ""` and no `thread_ts` instead. Clear errors are logged. After a successful real-ask wake, Fleetglass also clears that status when the brief has no `reply`. A usable `reply.url` stays up until the bot posts or the post fails. |
 
 ## GitHub
@@ -137,7 +140,7 @@ Give Richard the same `FLEETGLASS_REPLY_SECRET` value. Do not give Richard `SLAC
 
 ## Slack app
 
-Turn on Agents & AI Apps so thinking status can show. Add the bot scope `chat:write`. Invite the bot to the channel. Reinstall the app to the workspace after the scope change. `SLACK_BOT_TOKEN` must be the bot token from that install. Fleetglass never posts as `@Cursor` and never posts through a user connection.
+Subscribe the bot to `app_mention`, `message.channels`, and `message.groups` (private channels need `groups:history`, public need `channels:history`). Turn on Agents & AI Apps so thinking status can show. Add the bot scope `chat:write`. Invite the bot to the channel. Reinstall the app to the workspace after the scope change. `SLACK_BOT_TOKEN` must be the bot token from that install. Fleetglass never posts as `@Cursor` and never posts through a user connection.
 
 ## Dedupe
 
