@@ -14,7 +14,7 @@ Fleetglass is a backend API for one operator. It intakes Slack and GitHub and wa
 
 ## Spine
 
-1. Slack `app_mention` hits `POST /api/slack/events`.
+1. Slack `app_mention` hits `POST /api/slack/events`. A successful wake auto-watches the thread. A later owner reply in that thread, with no mention, arrives as a `message` event and wakes Richard again.
 2. A GitHub PR comment hits `POST /api/github/webhook`.
 3. Fleetglass checks the signature, then the owner or the mention.
 4. It POSTs one `fleetglass.wake` brief to `CHIEF_HANDOFF_URL`.
@@ -75,7 +75,7 @@ When `DATABASE_URL` is set, the key is inserted into `wake_keys` (`drizzle/0004_
 | `app_mention` from anyone except `SLACK_MENTION_USER_ID` | 200 `{ "ok": true, "ignored": "owner" }` |
 | Mention text is exactly `ping` after mention tokens are stripped | 200 `{ "ok": true, "woke": false, "answered": "pong" }` and no handoff |
 
-Default mention user is `U08C40K4FHN`. Optional `SLACK_BOT_USER_ID` must be one of the payload bot user ids when those ids are present. Only `app_mention` is ingested.
+Default mention user is `U08C40K4FHN`. Optional `SLACK_BOT_USER_ID` must be one of the payload bot user ids when those ids are present. `app_mention` is ingested. `message` is ingested only as a thread follow-up in a watched thread (below).
 
 `ping` is case-insensitive. Fleetglass posts `pong` with `chat.postMessage` and `SLACK_BOT_TOKEN` in `decision.threadTs`. It does not call `deliverRichardWake`. A failed post still returns 200 and clears Slack status with an empty status string.
 
@@ -84,6 +84,8 @@ Other Slack mentions still wake Richard. When `FLEETGLASS_PUBLIC_URL` is a host 
 The same route accepts a proactive post. A caller who holds `FLEETGLASS_REPLY_SECRET` signs `JSON.stringify(["v1", channel_id, thread_ts, exp])` and POSTs `{ "text", "channel_id", "thread_ts", "exp", "sig" }` with no Authorization header. `exp` must be within 15 minutes plus 60 seconds. No wake is required. `proactiveSlackReply` builds that body. The bot token stays on Fleetglass.
 
 A mention that is a watch phrase (`watch this thread`, `keep this thread updated`, and the close phrases in `FEATURE_MAP.md`) still wakes. Fleetglass stores the channel, thread, `CE-##` and `owner/repo#n` refs from that text, and the mentioner. The brief adds `watch` with `ack`. Richard posts `watch.ack` through `reply`. Fleetglass does not post the ack itself. Later posts to that thread use the proactive signature. Postgres table `thread_watches` when `DATABASE_URL` is set. Otherwise the binding stays in process memory.
+
+Mention, auto-watch, follow-up. After a mention wake succeeds, Fleetglass inserts the thread into `thread_watches` with no refs and keeps any existing row. A human reply in that thread from `SLACK_MENTION_USER_ID`, with no bot mention, wakes Richard with the same brief shape, a `reply` grant for the thread, and `followup: { "thread_ts" }`. A watch expires after 7 days with no mention or follow-up wake; the next mention revives it. Bot messages, edits, deletes, joins, top-level messages, and unwatched or expired threads never wake. The dedupe key is the message ts, shared with `app_mention`. The Slack app must subscribe to `message.channels` and `message.groups`, and the bot must be in the channel. DMs and group DMs never wake Richard. They return `ignored: dm`. Until this is deployed, the owner must mention Richard on every follow-up.
 
 ## GitHub
 

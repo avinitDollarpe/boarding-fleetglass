@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { proactiveSlackReply, SLACK_REPLY_SKEW_SEC, SLACK_REPLY_TTL_SEC } from "../src/lib/slack-reply";
 import { parseThreadWatchAsk, threadWatchAck } from "../src/lib/thread-watch";
 import { receiveGithubWebhook, receiveSlackEvent, receiveSlackReply } from "../src/server/listeners";
-import { getThreadWatch } from "../src/server/watches";
+import { ensureThreadWatch, getThreadWatch, THREAD_WATCH_TTL_MS, touchThreadWatch } from "../src/server/watches";
 
 const slackSecret = "slack-secret";
 const githubSecret = "github-secret";
@@ -282,7 +282,7 @@ slackStatusMode = "session";
 const session = {
   ...thinking,
   event_id: "EvSession",
-  event: { ...thinking.event, ts: "1710000000.000700", channel: "D1" },
+  event: { ...thinking.event, ts: "1710000000.000700", channel: "C5" },
 };
 const sessionRaw = JSON.stringify(session);
 const beforeSession = calls.length;
@@ -293,8 +293,8 @@ const sessionStatuses = sessionCalls.filter((call) => call.url.endsWith("/agents
 assert.deepEqual(
   sessionStatuses.map((call) => call.body),
   [
-    { channel_id: "D1", status: "processing" },
-    { channel_id: "D1", status: "" },
+    { channel_id: "C5", status: "processing" },
+    { channel_id: "C5", status: "" },
   ],
 );
 assert.equal("thread_ts" in ((sessionStatuses[0]?.body as object) ?? {}), false);
@@ -452,7 +452,7 @@ assert.equal(handoffs(), beforePing + 1);
 slackPostMode = "not_ok";
 slackStatusMode = "session";
 const beforeSessionPing = calls.length;
-const sessionPong = await postMention({ text: "ping", ts: "1710000000.001900", channel: "D9" });
+const sessionPong = await postMention({ text: "ping", ts: "1710000000.001900", channel: "C6" });
 assert.equal(sessionPong.status, 200);
 const sessionSlice = calls.slice(beforeSessionPing);
 assert.deepEqual(
@@ -464,8 +464,8 @@ assert.deepEqual(
     "https://slack.com/api/agents.sessions.setStatus",
   ],
 );
-assert.deepEqual(sessionSlice[1]?.body, { channel_id: "D9", status: "processing" });
-assert.deepEqual(sessionSlice[3]?.body, { channel_id: "D9", status: "" });
+assert.deepEqual(sessionSlice[1]?.body, { channel_id: "C6", status: "processing" });
+assert.deepEqual(sessionSlice[3]?.body, { channel_id: "C6", status: "" });
 assert.equal(handoffs(), beforePing + 1);
 
 slackStatusMode = "ok";
@@ -970,7 +970,89 @@ assert.deepEqual(rewatch.body, { ok: true, woke: true, deduped: false });
 const restored = await getThreadWatch("C09DTUTJ1CP", "1789001537.017620");
 assert.deepEqual(restored?.refs, ["DollarPe-Infra/app#3"]);
 assert.equal(restored?.createdAt, stored?.createdAt);
-assert.equal(await getThreadWatch("C9", "1710000000.000010"), null);
+// A plain mention wake auto-watches its thread with no refs.
+assert.deepEqual((await getThreadWatch("C9", "1710000000.000010"))?.refs, []);
+assert.equal(await getThreadWatch("C9", "1710000000.999999"), null);
+
+function slackMessage(partial: { text: string; ts: string; thread_ts?: string; user?: string; bot_id?: string; subtype?: string; channel_type?: string }) {
+  return JSON.stringify({
+    type: "event_callback",
+    team_id: "T1",
+    event_id: `EvMsg${partial.ts}`,
+    authorizations: [{ user_id: "UBOT", is_bot: true }],
+    event: { type: "message", channel: "C77", user: "U08C40K4FHN", ...partial },
+  });
+}
+async function postMessage(partial: Parameters<typeof slackMessage>[0]) {
+  const raw = slackMessage(partial);
+  return receiveSlackEvent(raw, ts, slackSig(raw, ts));
+}
+
+const unwatched = await postMessage({ text: "any update?", ts: "1790000000.000200", thread_ts: "1790000000.000100" });
+assert.deepEqual(unwatched.body, { ok: true, ignored: "unwatched" });
+
+const rootMention = await postMention({ text: "<@UBOT> look at CE-40", ts: "1790000000.000100", channel: "C77" });
+assert.deepEqual(rootMention.body, { ok: true, woke: true, deduped: false });
+assert.deepEqual((await getThreadWatch("C77", "1790000000.000100"))?.refs, []);
+
+const beforeFollowup = handoffs();
+const followupRes = await postMessage({ text: "any update?", ts: "1790000000.000300", thread_ts: "1790000000.000100" });
+assert.deepEqual(followupRes.body, { ok: true, woke: true, deduped: false });
+assert.equal(handoffs(), beforeFollowup + 1);
+const followupBrief = calls.filter((call) => call.url === "http://richard.test/wake").at(-1)?.body as {
+  text: string;
+  author: string;
+  ids: { slack_ts: string; channel_id: string };
+  reply?: { channel_id: string; thread_ts: string };
+  followup?: { thread_ts: string };
+  watch?: unknown;
+};
+assert.equal(followupBrief.text, "any update?");
+assert.equal(followupBrief.author, "U08C40K4FHN");
+assert.equal(followupBrief.ids.slack_ts, "1790000000.000300");
+assert.equal(followupBrief.ids.channel_id, "C77");
+assert.deepEqual(followupBrief.followup, { thread_ts: "1790000000.000100" });
+assert.equal(followupBrief.reply?.thread_ts, "1790000000.000100");
+assert.equal(followupBrief.watch, undefined);
+
+// Slack retry of the same message ts does not wake twice.
+const retriedFollowup = await postMessage({ text: "any update?", ts: "1790000000.000300", thread_ts: "1790000000.000100" });
+assert.deepEqual(retriedFollowup.body, { ok: true, woke: false, deduped: true });
+
+// Loops and noise never wake.
+const skips: [Parameters<typeof slackMessage>[0], string][] = [
+  [{ text: "Richard says hi", ts: "1790000000.000400", thread_ts: "1790000000.000100", bot_id: "B1" }, "bot"],
+  [{ text: "Richard says hi", ts: "1790000000.000401", thread_ts: "1790000000.000100", user: "UBOT" }, "bot"],
+  [{ text: "hi", ts: "1790000000.000402", thread_ts: "1790000000.000100", subtype: "bot_message" }, "bot"],
+  [{ text: "edited", ts: "1790000000.000403", thread_ts: "1790000000.000100", subtype: "message_changed" }, "subtype"],
+  [{ text: "joined", ts: "1790000000.000404", thread_ts: "1790000000.000100", subtype: "channel_join" }, "subtype"],
+  [{ text: "<@UBOT> again", ts: "1790000000.000405", thread_ts: "1790000000.000100" }, "mention"],
+  [{ text: "top level", ts: "1790000000.000406" }, "not_thread_reply"],
+  [{ text: "stranger", ts: "1790000000.000407", thread_ts: "1790000000.000100", user: "U000" }, "owner"],
+  [{ text: "dm", ts: "1790000000.000408", thread_ts: "1790000000.000100", channel_type: "im" }, "dm"],
+  [{ text: "group dm", ts: "1790000000.000409", thread_ts: "1790000000.000100", channel_type: "mpim" }, "dm"],
+];
+const beforeSkips = handoffs();
+for (const [partial, reason] of skips) {
+  assert.deepEqual((await postMessage(partial)).body, { ok: true, ignored: reason }, reason);
+}
+assert.equal(handoffs(), beforeSkips);
+
+const dmMention = await postMention({ text: "<@UBOT> hi", ts: "1790000000.000500", channel: "D123" });
+assert.deepEqual(dmMention.body, { ok: true, ignored: "dm" });
+
+// Watches expire after the TTL with no activity. A new mention wake revives them.
+const later = Date.now() + THREAD_WATCH_TTL_MS + 1000;
+assert.equal(await touchThreadWatch("C77", "1790000000.000100"), true);
+assert.equal(await touchThreadWatch("C77", "1790000000.000100", later), false);
+assert.equal(await touchThreadWatch("C77", "1790000000.000100", later + 1), false);
+await ensureThreadWatch({ channelId: "C77", threadTs: "1790000000.000100", ownerId: "U08C40K4FHN" }, later);
+assert.equal(await touchThreadWatch("C77", "1790000000.000100", later + 1), true);
+assert.equal(await touchThreadWatch("C77", "1790000000.000999"), false);
+
+// Auto-watch keeps refs from an explicit watch.
+await postMention({ text: "<@UBOT> status?", ts: "1789001537.017702", channel: "C09DTUTJ1CP", thread_ts: "1789001537.017620" });
+assert.deepEqual((await getThreadWatch("C09DTUTJ1CP", "1789001537.017620"))?.refs, ["DollarPe-Infra/app#3"]);
 
 console.log("wake checks ok");
 }
