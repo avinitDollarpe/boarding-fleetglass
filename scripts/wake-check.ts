@@ -282,7 +282,7 @@ slackStatusMode = "session";
 const session = {
   ...thinking,
   event_id: "EvSession",
-  event: { ...thinking.event, ts: "1710000000.000700", channel: "D1" },
+  event: { ...thinking.event, ts: "1710000000.000700", channel: "C5" },
 };
 const sessionRaw = JSON.stringify(session);
 const beforeSession = calls.length;
@@ -293,8 +293,8 @@ const sessionStatuses = sessionCalls.filter((call) => call.url.endsWith("/agents
 assert.deepEqual(
   sessionStatuses.map((call) => call.body),
   [
-    { channel_id: "D1", status: "processing" },
-    { channel_id: "D1", status: "" },
+    { channel_id: "C5", status: "processing" },
+    { channel_id: "C5", status: "" },
   ],
 );
 assert.equal("thread_ts" in ((sessionStatuses[0]?.body as object) ?? {}), false);
@@ -452,7 +452,7 @@ assert.equal(handoffs(), beforePing + 1);
 slackPostMode = "not_ok";
 slackStatusMode = "session";
 const beforeSessionPing = calls.length;
-const sessionPong = await postMention({ text: "ping", ts: "1710000000.001900", channel: "D9" });
+const sessionPong = await postMention({ text: "ping", ts: "1710000000.001900", channel: "C6" });
 assert.equal(sessionPong.status, 200);
 const sessionSlice = calls.slice(beforeSessionPing);
 assert.deepEqual(
@@ -464,8 +464,8 @@ assert.deepEqual(
     "https://slack.com/api/agents.sessions.setStatus",
   ],
 );
-assert.deepEqual(sessionSlice[1]?.body, { channel_id: "D9", status: "processing" });
-assert.deepEqual(sessionSlice[3]?.body, { channel_id: "D9", status: "" });
+assert.deepEqual(sessionSlice[1]?.body, { channel_id: "C6", status: "processing" });
+assert.deepEqual(sessionSlice[3]?.body, { channel_id: "C6", status: "" });
 assert.equal(handoffs(), beforePing + 1);
 
 slackStatusMode = "ok";
@@ -974,7 +974,7 @@ assert.equal(restored?.createdAt, stored?.createdAt);
 assert.deepEqual((await getThreadWatch("C9", "1710000000.000010"))?.refs, []);
 assert.equal(await getThreadWatch("C9", "1710000000.999999"), null);
 
-function slackMessage(partial: { text: string; ts: string; thread_ts?: string; user?: string; bot_id?: string; subtype?: string }) {
+function slackMessage(partial: { text: string; ts: string; thread_ts?: string; user?: string; bot_id?: string; subtype?: string; channel_type?: string }) {
   return JSON.stringify({
     type: "event_callback",
     team_id: "T1",
@@ -1029,12 +1029,17 @@ const skips: [Parameters<typeof slackMessage>[0], string][] = [
   [{ text: "<@UBOT> again", ts: "1790000000.000405", thread_ts: "1790000000.000100" }, "mention"],
   [{ text: "top level", ts: "1790000000.000406" }, "not_thread_reply"],
   [{ text: "stranger", ts: "1790000000.000407", thread_ts: "1790000000.000100", user: "U000" }, "owner"],
+  [{ text: "dm", ts: "1790000000.000408", thread_ts: "1790000000.000100", channel_type: "im" }, "dm"],
+  [{ text: "group dm", ts: "1790000000.000409", thread_ts: "1790000000.000100", channel_type: "mpim" }, "dm"],
 ];
 const beforeSkips = handoffs();
 for (const [partial, reason] of skips) {
   assert.deepEqual((await postMessage(partial)).body, { ok: true, ignored: reason }, reason);
 }
 assert.equal(handoffs(), beforeSkips);
+
+const dmMention = await postMention({ text: "<@UBOT> hi", ts: "1790000000.000500", channel: "D123" });
+assert.deepEqual(dmMention.body, { ok: true, ignored: "dm" });
 
 // Auto-watch keeps refs from an explicit watch.
 await postMention({ text: "<@UBOT> status?", ts: "1789001537.017702", channel: "C09DTUTJ1CP", thread_ts: "1789001537.017620" });

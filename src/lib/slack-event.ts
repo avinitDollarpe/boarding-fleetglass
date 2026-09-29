@@ -27,6 +27,7 @@ export type SlackEventBody = {
     thread_ts?: string;
     channel?: string;
     channel_name?: string;
+    channel_type?: string;
   };
 };
 
@@ -90,6 +91,10 @@ export function parseSlackEvent(payload: SlackEventBody): SlackDecision {
   if (!event.user) return { action: "ignore", reason: "mentioner" };
   const hint = slackRouteHint(payload);
   if (!hint || !event.ts || !event.channel) return { action: "ignore", reason: "empty" };
+  // DMs and group DMs never wake. D-prefixed ids are DMs even when channel_type is absent.
+  if (event.channel_type === "im" || event.channel_type === "mpim" || event.channel.startsWith("D")) {
+    return { action: "ignore", reason: "dm" };
+  }
   if (kind === "thread_reply") {
     if (!event.thread_ts || event.thread_ts === event.ts) return { action: "ignore", reason: "not_thread_reply" };
     if (hint.botUserIds.includes(event.user)) return { action: "ignore", reason: "bot" };

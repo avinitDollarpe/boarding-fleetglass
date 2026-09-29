@@ -31,6 +31,7 @@ GitHub PR comment
 | Signing | `SLACK_SIGNING_SECRET` and `X-Slack-Signature`. Unset secret is 503 `slack_unconfigured`. Bad signature is 401 `invalid_signature`. |
 | Challenge | `url_verification` returns 200 `{ "challenge": "<value>" }`. |
 | Event | `app_mention`, plus `message` replies in a watched thread (see Follow-up). Other events return 200 `ignored`. |
+| DMs | `channel_type` `im` or `mpim`, or a channel id starting with `D`, returns 200 `ignored: dm`. No wake, no status, no reply. |
 | Owner | `SLACK_MENTION_USER_ID`, default `U08C40K4FHN`. Anyone else is `ignored: owner`. |
 | Bot id | Optional `SLACK_BOT_USER_ID`. When set, and the payload lists bot user ids, that id must be one of them. |
 | Permalink | `SLACK_BOT_TOKEN` calls `chat.getPermalink`. Without the token, the URL is `https://slack.com/archives/{channel}/p{ts}`. The wake still runs. |
@@ -140,7 +141,7 @@ Give Richard the same `FLEETGLASS_REPLY_SECRET` value. Do not give Richard `SLAC
 
 ## Slack app
 
-Subscribe the bot to `app_mention`, `message.channels`, and `message.groups` (private channels need `groups:history`, public need `channels:history`). Turn on Agents & AI Apps so thinking status can show. Add the bot scope `chat:write`. Invite the bot to the channel. Reinstall the app to the workspace after the scope change. `SLACK_BOT_TOKEN` must be the bot token from that install. Fleetglass never posts as `@Cursor` and never posts through a user connection.
+Subscribe the bot to `app_mention`, `message.channels`, and `message.groups`. Do not subscribe to `message.im` or `message.mpim`. In App Home, turn off "Allow users to send Slash commands and messages from the messages tab" (private channels need `groups:history`, public need `channels:history`). Turn on Agents & AI Apps so thinking status can show. Add the bot scope `chat:write`. Invite the bot to the channel. Reinstall the app to the workspace after the scope change. `SLACK_BOT_TOKEN` must be the bot token from that install. Fleetglass never posts as `@Cursor` and never posts through a user connection.
 
 ## Dedupe
 
